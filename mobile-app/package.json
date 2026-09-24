@@ -1,0 +1,23 @@
+{
+  "name": "crash-response-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "react-native start",
+    "ios": "react-native run-ios",
+    "android": "react-native run-android"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.73.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@babel/runtime": "^7.23.0",
+    "@react-native/babel-preset": "0.73.21",
+    "@react-native/metro-config": "0.73.5",
+    "@types/react": "^18.2.0",
+    "typescript": "^5.3.0"
+  }
+}
