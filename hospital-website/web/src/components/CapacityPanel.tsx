@@ -1,49 +1,58 @@
+import { motion, useReducedMotion } from 'motion/react';
 import type { Hospital } from '../types';
 
-export function CapacityPanel({
-  hospitals,
-  onSelect,
-}: {
-  hospitals: Hospital[];
-  onSelect?: (hospitalId: string) => void;
-}) {
+function Bar({ used, capacity }: { used: number; capacity: number }) {
+  const pct = capacity ? Math.round((used / capacity) * 100) : 0;
+  const reduce = useReducedMotion();
+  const color =
+    pct >= 75 ? 'var(--sev-critical)' : pct >= 40 ? 'var(--sev-moderate)' : 'var(--sev-mild)';
+
   return (
-    <div className="card shadow-soft p-5">
-      <h2 className="text-sm font-semibold">Hospital capacity</h2>
-      <ul className="mt-4 space-y-4">
-        {hospitals.map((hospital) => {
-          const used = hospital.current_load;
-          const pct = hospital.capacity ? Math.round((used / hospital.capacity) * 100) : 0;
-          const bar = pct >= 75 ? 'bg-rose-500' : pct >= 40 ? 'bg-amber-500' : 'bg-emerald-500';
-          return (
+    <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--line)]">
+      <motion.div
+        className="h-full rounded-full"
+        style={{ backgroundColor: color }}
+        initial={reduce ? false : { width: 0 }}
+        animate={{ width: `${Math.max(pct, used > 0 ? 5 : 0)}%` }}
+        transition={{ type: 'spring', stiffness: 140, damping: 22 }}
+      />
+    </div>
+  );
+}
+
+export function CapacityPanel({ hospitals, loading }: { hospitals: Hospital[]; loading: boolean }) {
+  return (
+    <div className="card p-5">
+      <h2 className="text-sm font-semibold tracking-tight">Hospital capacity</h2>
+
+      {loading ? (
+        <div className="mt-4 space-y-5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="space-y-2">
+              <div className="skeleton h-3.5 w-32 rounded-lg" />
+              <div className="skeleton h-2 w-full rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <ul className="mt-4 space-y-4">
+          {hospitals.map((hospital) => (
             <li key={hospital.hospital_id}>
               <div className="flex items-baseline justify-between gap-2">
-                <button
-                  onClick={() => onSelect?.(hospital.hospital_id)}
-                  className="-ml-2 min-h-9 truncate rounded-lg px-2 text-left text-sm font-medium transition hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
-                >
-                  {hospital.name}
-                </button>
-                <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted)]">
-                  {hospital.free_beds} free
+                <p className="truncate text-sm font-medium">{hospital.name}</p>
+                <p className="tnum shrink-0 text-xs text-muted">{hospital.free_beds} free</p>
+              </div>
+              <div className="mt-2 flex items-center gap-2.5">
+                <Bar used={hospital.current_load} capacity={hospital.capacity} />
+                <span className="tnum w-12 shrink-0 text-right text-xs text-muted">
+                  {hospital.current_load}/{hospital.capacity}
                 </span>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-line)]">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${bar}`}
-                    style={{ width: `${Math.max(pct, used > 0 ? 6 : 0)}%` }}
-                  />
-                </div>
-                <span className="w-14 shrink-0 text-right text-xs tabular-nums text-[var(--color-muted)]">
-                  {used}/{hospital.capacity}
-                </span>
-              </div>
-              <p className="mt-1.5 text-[11px] text-[var(--color-muted)]">Trauma level {hospital.trauma_level}</p>
+              <p className="mt-1.5 text-2xs text-muted">Trauma level {hospital.trauma_level}</p>
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

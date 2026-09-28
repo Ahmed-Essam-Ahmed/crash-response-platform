@@ -14,6 +14,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const stored = localStorage.getItem('hospital-console-theme');
+        const dark =
+          stored === 'dark' ||
+          (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

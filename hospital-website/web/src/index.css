@@ -2,99 +2,253 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+/* ------------------------------------------------------------------ *
+ * Design tokens
+ *
+ * OKLCH keeps lightness perceptually uniform, so one scale reads evenly
+ * across hues and both themes stay balanced. `light-dark()` means the
+ * two themes live in one declaration instead of two mirrored blocks.
+ * ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
 
-  --color-canvas: #f6f7fb;
-  --color-surface: #ffffff;
-  --color-line: #e6e9f0;
-  --color-ink: #0f172a;
-  --color-muted: #64748b;
-  --color-accent: #4f46e5;
-  --color-accent-soft: #eef2ff;
+  --bg: light-dark(oklch(0.984 0.004 264), oklch(0.168 0.018 264));
+  --surface: light-dark(oklch(1 0 0), oklch(0.212 0.02 264));
+  --surface-2: light-dark(oklch(0.972 0.005 264), oklch(0.252 0.022 264));
+  --line: light-dark(oklch(0.916 0.007 264), oklch(0.32 0.02 264));
+  --line-strong: light-dark(oklch(0.86 0.01 264), oklch(0.4 0.022 264));
 
-  --radius-xl2: 1.25rem;
+  --ink: light-dark(oklch(0.22 0.02 264), oklch(0.975 0.004 264));
+  --ink-soft: light-dark(oklch(0.38 0.02 264), oklch(0.85 0.012 264));
+  --muted: light-dark(oklch(0.5 0.016 264), oklch(0.76 0.015 264));
+
+  --primary: light-dark(oklch(0.53 0.2 276), oklch(0.72 0.16 276));
+  --primary-ink: light-dark(oklch(0.45 0.2 276), oklch(0.8 0.14 276));
+  --primary-fg: light-dark(oklch(0.99 0.004 276), oklch(0.17 0.03 276));
+  --primary-soft: light-dark(oklch(0.955 0.017 276), oklch(0.28 0.05 276));
+
+  --sev-critical: light-dark(oklch(0.54 0.21 22), oklch(0.73 0.18 22));
+  --sev-serious: light-dark(oklch(0.6 0.17 50), oklch(0.79 0.15 50));
+  --sev-moderate: light-dark(oklch(0.68 0.15 78), oklch(0.84 0.13 78));
+  --sev-mild: light-dark(oklch(0.53 0.13 152), oklch(0.76 0.14 152));
+
+  --shadow-soft: 0 1px 2px oklch(0.2 0.02 264 / 0.04), 0 6px 20px -10px oklch(0.2 0.02 264 / 0.14);
+  --shadow-lift: 0 2px 4px oklch(0.2 0.02 264 / 0.05), 0 18px 40px -18px oklch(0.2 0.02 264 / 0.24);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root.dark {
+  color-scheme: dark;
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.34), 0 10px 30px -14px oklch(0 0 0 / 0.6);
+  --shadow-lift: 0 2px 6px oklch(0 0 0 / 0.4), 0 24px 48px -20px oklch(0 0 0 / 0.7);
+}
+
+@theme inline {
+  --font-sans: 'Inter var', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+
+  --text-2xs: clamp(0.6875rem, 0.67rem + 0.09vw, 0.75rem);
+  --text-xs: clamp(0.75rem, 0.73rem + 0.11vw, 0.8125rem);
+  --text-sm: clamp(0.8125rem, 0.79rem + 0.14vw, 0.875rem);
+  --text-base: clamp(0.9375rem, 0.91rem + 0.16vw, 1rem);
+  --text-lg: clamp(1.0625rem, 1rem + 0.34vw, 1.25rem);
+  --text-xl: clamp(1.1875rem, 1.09rem + 0.5vw, 1.5rem);
+  --text-2xl: clamp(1.5rem, 1.28rem + 1.1vw, 2.25rem);
+
+  --radius-card: 1.125rem;
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-lift: var(--shadow-lift);
 }
 
 @layer base {
-  .dark {
-    --color-canvas: #0a0f1c;
-    --color-surface: #121a2b;
-    --color-line: #22304a;
-    --color-ink: #eef2f8;
-    --color-muted: #94a3b8;
-    --color-accent: #818cf8;
-    --color-accent-soft: #1e2547;
+  * {
+    border-color: var(--line);
   }
 
   html {
-    color-scheme: light;
-  }
-
-  html.dark {
-    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    background-color: var(--color-canvas);
-    color: var(--color-ink);
+    background-color: var(--bg);
+    color: var(--ink);
     font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 26%, transparent);
   }
 
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
-
   ::-webkit-scrollbar-thumb {
-    background: var(--color-line);
+    background: var(--line-strong);
     border-radius: 99px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  [data-tone='critical'] {
+    --tone: var(--sev-critical);
+    --tone-ink: light-dark(oklch(0.48 0.2 22), oklch(0.82 0.15 22));
+  }
+  [data-tone='serious'] {
+    --tone: var(--sev-serious);
+    --tone-ink: light-dark(oklch(0.5 0.16 48), oklch(0.86 0.13 48));
+  }
+  [data-tone='moderate'] {
+    --tone: var(--sev-moderate);
+    --tone-ink: light-dark(oklch(0.5 0.13 70), oklch(0.88 0.12 78));
+  }
+  [data-tone='mild'] {
+    --tone: var(--sev-mild);
+    --tone-ink: light-dark(oklch(0.44 0.11 152), oklch(0.84 0.13 152));
+  }
+
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .chip {
+    background-color: color-mix(in oklab, var(--tone) 13%, var(--surface));
+    color: var(--tone-ink);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 26%, transparent);
+  }
+
+  .btn {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    padding-inline: 1rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    transition:
+      background-color 0.2s var(--ease-out-quint),
+      color 0.2s var(--ease-out-quint),
+      box-shadow 0.2s var(--ease-out-quint),
+      border-color 0.2s var(--ease-out-quint);
+  }
+
+  .btn-primary {
+    background-color: var(--primary);
+    color: var(--primary-fg);
+    box-shadow: var(--shadow-soft);
+  }
+  .btn-primary:hover {
+    box-shadow: var(--shadow-lift);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .btn-ghost:hover {
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+
+  .surface-2 {
+    background-color: var(--surface-2);
+  }
+
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--surface-2) 0%,
+      color-mix(in oklab, var(--surface-2) 55%, var(--surface)) 50%,
+      var(--surface-2) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
   }
 }
 
 @layer utilities {
-  .card {
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-xl2);
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
 
-  .shadow-soft {
-    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.12);
+  .press {
+    transition: transform 0.16s var(--ease-out-quint);
   }
-
-  .dark .shadow-soft {
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
-  }
-
-  .fade-in {
-    animation: fade-in 0.35s ease-out both;
+  .press:active {
+    transform: scale(0.975);
   }
 }
 
-@keyframes fade-in {
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Theme switching animates as a circular wipe from the toggle. */
+::view-transition-old(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: theme-wipe 0.5s var(--ease-out-quint);
+}
+
+@keyframes theme-wipe {
   from {
-    opacity: 0;
-    transform: translateY(6px);
+    clip-path: circle(0% at var(--theme-x, 50%) var(--theme-y, 0%));
   }
   to {
-    opacity: 1;
-    transform: none;
+    clip-path: circle(150% at var(--theme-x, 50%) var(--theme-y, 0%));
   }
 }
 
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.85);
-    opacity: 0.55;
-  }
-  70% {
-    transform: scale(1.6);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.6);
-    opacity: 0;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
