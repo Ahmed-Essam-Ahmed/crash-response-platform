@@ -11,7 +11,7 @@ replaces physical sensors.
 | # | Part | Description | Tech |
 |---|------|-------------|------|
 | 1 | [`mobile-app/`](mobile-app) | Phone client: consumes simulated sensor streams, detects locally, and builds the emergency payload (location, medical profile, severity) | React Native |
-| 2 | [`hospital-website/`](hospital-website) | **Full-stack** responder console + backend: incident API, WebSocket broadcast, contact notification, ambulance dispatch, hospital workflow, live city view | FastAPI, WebSockets, React, Canvas |
+| 2 | [`hospital-website/`](hospital-website) | **Full-stack** response end: receives crash reports, runs the incident lifecycle (triage → dispatch → hospital → handover), and serves a live operator console | FastAPI, WebSockets, React, Canvas |
 | 3 | [`ai-model/`](ai-model) | Crash detection (threshold rules + ML) and AI severity rating (0–10) | Python, scikit-learn |
 | 4 | [`simulation/`](simulation) | Generates phone sensor streams, trips, and crash signatures — plus a live **world simulator** (grid city, driving vehicles, scheduled crashes) | Python |
 | 5 | [`data-analytics/`](data-analytics) | Read-only analytics service + website: red-zone hotspots, time patterns, severity distribution | FastAPI, React, Recharts |
@@ -19,34 +19,40 @@ replaces physical sensors.
 ## Run the live demo
 
 ```bash
-# terminal 1 — backend + world simulator
+# terminal 1 — hospital response service
 cd hospital-website/backend && pip install -r requirements.txt
-uvicorn app.main:app --port 8000
+DEMO_SOURCE=on uvicorn app.main:app --port 8000
 
-# terminal 2 — analytics service
+# terminal 2 — hospital console
+cd hospital-website/web && npm install && npm run dev      # http://localhost:5173
+
+# terminal 3 — analytics service
 cd data-analytics/service && pip install -r requirements.txt
 uvicorn main:app --port 8001
 
-# terminal 3 — hospital & emergency console
-cd hospital-website/web && npm install && npm run dev      # http://localhost:5173
-
-# terminal 4 — data analytics site
+# terminal 4 — analytics site
 cd data-analytics/web && npm install && npm run dev        # http://localhost:5174
 ```
 
-The console shows a living city: vehicles drive, a crash is detected and classified, contacts are
-notified, an ambulance drives to the scene, and the incident lands in the feed. Switch **Scripted
-demo / Random city** and change speed live. The analytics site builds red zones, hourly patterns,
-and severity distributions from everything that has happened.
+`DEMO_SOURCE=on` makes the hospital service generate its own crash reports every 12 seconds, so the
+part can be demoed standalone. Drop it once the upstream part feeds it.
+
+The console shows a live map: a crash is reported, triaged, an ambulance is assigned and drives to
+the scene, the patient is transported, and the incident closes — with the full timeline on the
+right and hospital beds filling in real time. The analytics site builds red zones and hourly
+patterns from the incidents the hospital service records.
 
 ## System Flow
 
 ```
-simulation ──▶ mobile-app ──▶ ai-model ──▶ hospital-website/backend ──▶ hospital-website/web
-(sensor data) (alert payload) (crash+severity)   (events / WS / dispatch)   (live console)
-                                                       │
-                                                       └──▶ data-analytics (hotspots, patterns)
+simulation ──▶ mobile-app ──▶ ai-model ──▶ hospital-website ──▶ data-analytics
+(sensor data) (alert payload) (crash+severity)  (lifecycle + dispatch)  (hotspots, patterns)
+                                                 │
+                                                 └──▶ console (live map, timeline, beds)
 ```
+
+Each part is built independently and the shared contract is agreed at integration time — see
+[`contracts/`](contracts) for the current boundary shapes.
 
 ## Shared Contracts
 
@@ -59,10 +65,9 @@ Each part has its own README with setup and run instructions. Suggested start or
 
 1. `simulation` — generate a labeled scenario into `data/`
 2. `ai-model` — run rules/severity on a generated window
-3. `hospital-website/backend` — serve the alert API + WebSocket + world
-4. `hospital-website/web` — watch live events
-5. `data-analytics` — build hotspot/pattern analytics
-6. `mobile-app` — play back a trip and trigger the flow end-to-end
+3. `hospital-website` — run it standalone with `DEMO_SOURCE=on`, then swap in real upstream input
+4. `data-analytics` — build hotspot/pattern analytics
+5. `mobile-app` — play back a trip and trigger the flow end-to-end
 
 ## Demo Scenario
 

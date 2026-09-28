@@ -1,19 +1,28 @@
-import type { IncidentRow } from './types';
+import type { Ambulance, Hospital, Incident } from './types';
 
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API ?? 'http://localhost:8000';
 
-export async function fetchIncidents(): Promise<IncidentRow[]> {
-  const res = await fetch(`${API}/alerts`);
-  return res.json();
-}
-
-export async function setSimConfig(mode?: 'scripted' | 'random', speed?: number) {
-  const body = { mode, speed };
-  const res = await fetch(`${API}/sim/config`, {
-    method: 'POST',
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    ...init,
   });
-  if (!res.ok) throw new Error(`sim config error ${res.status}`);
+  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
   return res.json();
 }
+
+export const health = () => request<{ status: string; stream_clients: number }>('/health');
+export const fetchActive = () => request<Incident[]>('/incidents/active');
+export const fetchRecent = () => request<Incident[]>('/incidents?limit=50');
+export const fetchHospitals = () => request<Hospital[]>('/hospitals');
+export const fetchFleet = () => request<Ambulance[]>('/fleet');
+export const fetchIncident = (alertId: string) =>
+  request<Incident>(`/incidents/${encodeURIComponent(alertId)}`);
+
+export const cancelIncident = (alertId: string) =>
+  request<Incident>(`/incidents/${encodeURIComponent(alertId)}/cancel`, { method: 'POST' });
+
+export const reportCrash = (body: Record<string, unknown>) =>
+  request<Incident>('/incidents', { method: 'POST', body: JSON.stringify(body) });
+
+export const WS_URL = import.meta.env.VITE_WS ?? 'ws://localhost:8000/stream';

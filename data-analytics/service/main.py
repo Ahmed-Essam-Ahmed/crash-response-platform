@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from analytics import load_incidents, summary
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = ROOT / "hospital-website" / "backend" / "incidents.db"
+DEFAULT_DB = ROOT / "hospital-website" / "data" / "hospital.db"
 DB_PATH = os.environ.get("DB_PATH", str(DEFAULT_DB))
 
 app = FastAPI(title="Crash Response Analytics", version="1.0.0")

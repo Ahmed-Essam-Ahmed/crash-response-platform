@@ -30,3 +30,8 @@ output/
 # Editors
 .idea/
 .vscode/
+# Hospital service local data
+hospital-website/data/
+
+# Tool caches
+.vite/

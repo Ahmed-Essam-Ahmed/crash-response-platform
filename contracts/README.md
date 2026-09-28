@@ -23,75 +23,15 @@ Emitted by `simulation` → consumed by `mobile-app` / `ai-model`.
 ```
 
 ### `crash_detected`
-Emitted by `ai-model` (or preliminary in `mobile-app`) → consumed by `hospital-website/backend`.
+Emitted by `ai-model` (or preliminary in `mobile-app`) → submitted to the hospital service via
+`POST /incidents`. See "The hospital service boundary" below for the accepted shape.
 
-```json
-{
-  "schema_version": "1.0",
-  "type": "crash_detected",
-  "trip_id": "trip-0001",
-  "t": 1727184123.4,
-  "location": { "lat": 30.04442, "lon": 31.23571 },
-  "severity": 7.4,
-  "factors": {
-    "peak_g": 6.8,
-    "delta_v_mps": 11.2,
-    "impact_type": "frontal",
-    "speed_at_impact_mps": 16.0,
-    "post_crash_inactive": true
-  },
-  "medical_profile_ref": "profile-0001",
-  "detection": { "rule": true, "ml_confidence": 0.97 }
-}
-```
+### Superseded events
 
-### `emergency_alert`
-Emitted by `hospital-website/backend` → broadcast to the console (WebSocket) and simulated to
-contacts/hospitals.
-
-```json
-{
-  "schema_version": "1.0",
-  "type": "emergency_alert",
-  "alert_id": "alert-0001",
-  "status": "dispatched",
-  "severity": 7.4,
-  "location": { "lat": 30.04442, "lon": 31.23571 },
-  "contacts_notified": ["mom", "primary"],
-  "assignment": { "hospital_id": "hosp-03", "ambulance_id": "amb-02" },
-  "created_at": 1727184123.5
-}
-```
-
-### `dispatch_update`
-Emitted by `hospital-website/backend` workflows → broadcast to the console.
-
-```json
-{
-  "schema_version": "1.0",
-  "type": "dispatch_update",
-  "alert_id": "alert-0001",
-  "ambulance_id": "amb-02",
-  "eta_seconds": 214,
-  "state": "en_route",
-  "route": [[31.10, 30.05], [31.15, 30.06], [31.18, 30.05]]
-}
-```
-
-### `vehicle_state`
-Emitted by `simulation` (driven by the backend) → broadcast to the console.
-
-```json
-{
-  "schema_version": "1.0",
-  "type": "vehicle_state",
-  "trip_id": "trip-0001",
-  "lat": 30.04442,
-  "lon": 31.23571,
-  "speed_mps": 14.2,
-  "status": "driving"
-}
-```
+The earlier `emergency_alert`, `dispatch_update`, and `vehicle_state` events belonged to the first
+version of this platform. The hospital service has since been rebuilt around an explicit incident
+lifecycle and now emits `incident_detected`, `incident_status`, `fleet_update`, and
+`hospitals_update` instead — documented under "The hospital service boundary".
 
 ## REST Endpoints
 
@@ -99,12 +39,16 @@ Emitted by `simulation` (driven by the backend) → broadcast to the console.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/alerts` | Mobile-app / ai-model submits a crash payload |
-| `GET`  | `/alerts` | List incidents |
-| `POST` | `/sim/config` | Set world mode (`scripted`/`random`) and speed |
-| `GET`  | `/sim/config` | Current world mode + speed |
+| `POST` | `/incidents` | Report a crash — **the upstream input boundary** |
+| `GET`  | `/incidents` | List incidents |
+| `GET`  | `/incidents/active` | Everything not yet closed |
+| `GET`  | `/incidents/{alert_id}` | Detail with timeline |
+| `POST` | `/incidents/{alert_id}/cancel` | Cancel an active incident |
+| `GET`  | `/hospitals` | Hospitals with capacity and load |
+| `GET`  | `/hospitals/{code}/incoming` | Active incidents for a hospital |
+| `GET`  | `/fleet` | Ambulances with live positions |
 | `GET`  | `/health` | Liveness |
-| `WS`   | `/ws` | Real-time broadcast of all event types |
+| `WS`   | `/stream` | Real-time events (alias `/ws`) |
 
 ### data-analytics/service (port 8001)
 
@@ -114,4 +58,55 @@ Emitted by `simulation` (driven by the backend) → broadcast to the console.
 | `GET` | `/analytics/incidents` | Raw incidents (read-only) |
 | `GET` | `/health` | Liveness + DB path |
 
-> Analytics is computed server-side in `data-analytics/service` from the backend's incident DB.
+## The hospital service boundary (provisional)
+
+Each part is built independently and the shared contract is agreed at integration. These are the
+shapes the hospital service currently accepts and emits.
+
+### Input — `POST /incidents`
+
+```json
+{
+  "trip_id": "trip-0001",
+  "severity": 8.5,
+  "location": { "lat": 30.043, "lon": 31.244 },
+  "medical_profile_ref": "profile-0001",
+  "detection": { "rule": true, "ml_confidence": 0.97 },
+  "impact_factors": { "peak_g": 9.1, "delta_v_mps": 13.4, "impact_type": "frontal" }
+}
+```
+
+Only `severity` and `location` are required; everything else is optional and echoed back on the
+incident record.
+
+### Output — `GET /incidents/{alert_id}`
+
+```json
+{
+  "alert_id": "alert-27c72f79",
+  "trip_id": "trip-0001",
+  "severity": 8.5,
+  "status": "en_route_to_hospital",
+  "destination": "trauma_centre",
+  "assignment": { "hospital_id": "hosp-01", "ambulance_ids": ["amb-021", "amb-022"] },
+  "eta_scene_seconds": 73,
+  "eta_hospital_seconds": 160,
+  "impact_factors": { "peak_g": 9.1, "delta_v_mps": 13.4 },
+  "created_at": "2026-09-28T21:55:02.113000",
+  "closed_at": null,
+  "events": [
+    { "status": "detected", "note": "crash detected", "at_scene": false, "created_at": "..." }
+  ]
+}
+```
+
+### Output — WebSocket `/stream`
+
+```json
+{ "type": "incident_status", "alert_id": "alert-...", "status": "on_scene", "note": "paramedics on scene", "at": "..." }
+{ "type": "fleet_update", "alert_id": "alert-...", "status": "en_route_to_scene", "ambulances": [{ "ambulance_id": "amb-021", "lat": 30.04, "lon": 31.24, "status": "en_route" }] }
+{ "type": "hospitals_update", "hospitals": [{ "hospital_id": "hosp-01", "current_load": 2, "free_beds": 10 }] }
+```
+
+Lifecycle values: `detected`, `contacts_notified`, `ambulance_assigned`, `en_route_to_scene`,
+`on_scene`, `en_route_to_hospital`, `at_hospital`, `closed`, `cancelled`.

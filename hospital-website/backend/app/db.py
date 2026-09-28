@@ -1,15 +1,11 @@
-import os
-from pathlib import Path
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
-_DEFAULT_DB = Path(__file__).resolve().parents[1] / "incidents.db"
-DB_PATH = os.environ.get("DB_PATH", f"sqlite:///{_DEFAULT_DB}")
+from .config import DATABASE_URL
 
-engine = create_engine(DB_PATH, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-Base = declarative_base()
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
 def get_db():

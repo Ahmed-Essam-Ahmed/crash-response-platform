@@ -1,34 +1,22 @@
+from datetime import datetime
+
 from .. import models
-from ..db import SessionLocal
-
-DEFAULT_CONTACTS = [
-    {"name": "Mother", "relation": "family"},
-    {"name": "Primary Care", "relation": "medical"},
-]
+from . import registry
 
 
-def notify_contacts(db, payload) -> list:
-    profile = payload.get("medical_profile_ref") if isinstance(payload, dict) \
-        else payload.medical_profile_ref
-    contacts = db.query(models.Contact).filter(models.Contact.profile_ref == profile).all() \
-        if profile else []
-    if not contacts:
-        contacts = [
-            models.Contact(name=c["name"], relation=c["relation"],
-                           phone="+20 1 0000 0000", profile_ref=profile or "profile-0001")
-            for c in DEFAULT_CONTACTS
-        ]
-    results = []
-    for c in contacts:
-        loc = payload.get("location") if isinstance(payload, dict) else payload.location
-        sev = payload.get("severity") if isinstance(payload, dict) else payload.severity
-        sent_ok = True
-        results.append({
-            "name": c.name,
-            "relation": c.relation,
-            "message_sent": True if sent_ok else False,
-            "call_placed": True if sent_ok else False,
-            "summary": f"Accident at ({loc.get('lat')}, {loc.get('lon')}) "
-                       f"severity {sev}/10 — {c.relation} notified",
+def notify(db, profile_ref: str, incident) -> list:
+    contacts = registry.ensure_contacts(db, profile_ref)
+    now = datetime.utcnow()
+    notified = []
+    for contact in sorted(contacts, key=lambda c: c.priority):
+        contact.notified_at = now
+        notified.append({
+            "name": contact.name,
+            "relation": contact.relation,
+            "phone": contact.phone,
+            "message_sent": True,
+            "call_placed": contact.priority == 1,
+            "notified_at": now.isoformat(),
         })
-    return results
+    db.commit()
+    return notified

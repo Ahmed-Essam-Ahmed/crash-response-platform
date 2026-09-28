@@ -1,133 +1,170 @@
-import { useEffect, useState } from 'react';
-import CanvasView from './components/CanvasView';
-import IncidentFeed from './components/IncidentFeed';
-import { fetchIncidents, setSimConfig } from './api';
-import { useSocket } from './hooks/useSocket';
-import type { EmergencyAlert, IncidentRow, VehicleState } from './types';
+import { useCallback, useEffect, useState } from 'react';
+import HospitalPanel from './components/HospitalPanel';
+import IncidentBoard from './components/IncidentBoard';
+import IncidentDetail from './components/IncidentDetail';
+import MapCanvas from './components/MapCanvas';
+import { useStream } from './hooks/useStream';
+import {
+  cancelIncident, fetchActive, fetchFleet, fetchHospitals, fetchIncident, health, reportCrash,
+} from './api';
+import type { Ambulance, Hospital, Incident, StreamEvent } from './types';
+
+const SEVERITIES = [2.5, 4.2, 6.3, 7.8, 9.3];
 
 export default function App() {
-  const [incidents, setIncidents] = useState<IncidentRow[]>([]);
-  const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleState[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [fleet, setFleet] = useState<Ambulance[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [mode, setMode] = useState<'scripted' | 'random'>('scripted');
-  const [speed, setSpeed] = useState(3);
-  const [connected, setConnected] = useState<boolean | null>(null);
-  const wsEvents = useSocket();
+  const [detail, setDetail] = useState<Incident | null>(null);
+  const [connected, setConnected] = useState(false);
 
-  useEffect(() => {
-    fetchIncidents().then(setIncidents).catch(() => setIncidents([]));
+  const refresh = useCallback(() => {
+    fetchActive().then(setIncidents).catch(() => undefined);
+    fetchHospitals().then(setHospitals).catch(() => undefined);
+    fetchFleet().then(setFleet).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    setSimConfig(mode, undefined).catch(() => undefined);
-  }, [mode]);
+    refresh();
+    const timer = setInterval(() => {
+      health().then((h) => setConnected(h.status === 'ok')).catch(() => setConnected(false));
+      refresh();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [refresh]);
 
-  useEffect(() => {
-    setSimConfig(undefined, speed).catch(() => undefined);
-  }, [speed]);
-
-  useEffect(() => {
-    for (const ev of wsEvents) {
-      const e = ev as { type: string };
-      if (e.type === 'emergency_alert') {
-        const a = e as EmergencyAlert;
-        setAlerts((prev) => [a, ...prev.filter((x) => x.alert_id !== a.alert_id)].slice(0, 80));
-        setIncidents((prev) => [
-          {
-            alert_id: a.alert_id,
-            trip_id: a.alert_id,
-            severity: a.severity,
-            lat: a.location.lat,
-            lon: a.location.lon,
-            status: a.status,
-            hospital_id: a.assignment.hospital_id,
-            ambulance_id: a.assignment.ambulance_id,
-            contacts_notified: a.contacts_notified.join(', '),
-            created_at: a.created_at,
-          },
-          ...prev,
-        ]);
-      } else if (e.type === 'vehicle_state') {
-        const v = e as VehicleState;
-        setVehicles((prev) => {
-          const rest = prev.filter((x) => x.trip_id !== v.trip_id);
-          return [...rest, v];
+  const onEvent = useCallback(
+    (event: StreamEvent) => {
+      if (event.type === 'hospitals_update') {
+        setHospitals(event.hospitals);
+      } else if (event.type === 'fleet_update') {
+        setFleet((prev) => {
+          const byId = new Map(prev.map((a) => [a.ambulance_id, a]));
+          for (const amb of event.ambulances) byId.set(amb.ambulance_id, amb);
+          return [...byId.values()];
         });
-      } else if (e.type === 'vehicle_lifecycle') {
-        setVehicles((prev) => prev.filter((x) => x.trip_id !== (e as unknown as { trip_id: string }).trip_id));
+      } else if (event.type === 'incident_detected' || event.type === 'incident_status') {
+        refresh();
+        if (selected) {
+          fetchIncident(selected).then(setDetail).catch(() => undefined);
+        }
       }
-    }
-  }, [wsEvents]);
+    },
+    [refresh, selected],
+  );
 
-  useEffect(() => {
-    const check = setInterval(() => {
-      fetch('http://localhost:8000/health')
-        .then((r) => r.json())
-        .then(() => setConnected(true))
-        .catch(() => setConnected(false));
-    }, 3000);
-    return () => clearInterval(check);
-  }, []);
+  const { connected: streamConnected } = useStream(onEvent);
+  useEffect(() => setConnected(connected || streamConnected), [connected, streamConnected]);
+
+  const openDetail = (alertId: string) => {
+    setSelected(alertId);
+    fetchIncident(alertId).then(setDetail).catch(() => undefined);
+  };
+
+  const sendTestCrash = async () => {
+    const severity = SEVERITIES[Math.floor(Math.random() * SEVERITIES.length)];
+    const incident = await reportCrash({
+      trip_id: `console-${Date.now().toString(36)}`,
+      severity,
+      location: {
+        lat: 30.028 + Math.random() * 0.02,
+        lon: 31.232 + Math.random() * 0.02,
+      },
+      medical_profile_ref: 'profile-0001',
+      detection: { rule: true, ml_confidence: 0.94 },
+      impact_factors: { peak_g: 4 + severity, delta_v_mps: severity * 1.4, impact_type: 'frontal' },
+    });
+    openDetail(incident.alert_id);
+  };
+
+  const onCancel = async (alertId: string) => {
+    await cancelIncident(alertId);
+    setDetail(null);
+    setSelected(null);
+    refresh();
+  };
 
   return (
     <div style={styles.shell}>
       <header style={styles.header}>
-        <h1>Crash Response — Hospital &amp; Emergency Console</h1>
+        <h1 style={styles.brand}>Hospital Response Console</h1>
         <div style={styles.headerRight}>
           <span style={dot(connected)} />
+          <span style={styles.statusText}>{connected ? 'live' : 'offline'}</span>
+          <button style={styles.primary} onClick={sendTestCrash}>
+            Report crash
+          </button>
         </div>
       </header>
 
       <div style={styles.main}>
-        <section style={styles.world}>
-          <div style={styles.controls}>
-            <span style={styles.ctrlLabel}>Mode:</span>
-            <button style={modeBtn(mode === 'scripted')} onClick={() => setMode('scripted')}>Scripted demo</button>
-            <button style={modeBtn(mode === 'random')} onClick={() => setMode('random')}>Random city</button>
-            <span style={styles.ctrlLabel}>Speed: {speed}x</span>
-            <input
-              type="range" min={1} max={8} step={1} value={speed}
-              onChange={(e) => setSpeed(Number(e.target.value))}
-              style={styles.slider}
-            />
-          </div>
-          <div style={styles.canvas}>
-            <CanvasView vehicles={vehicles} alerts={alerts} />
+        <section style={styles.mapPane}>
+          <MapCanvas
+            hospitals={hospitals}
+            ambulances={fleet}
+            incidents={incidents}
+            selectedId={selected}
+            onSelect={openDetail}
+          />
+          <div style={styles.legend}>
+            {[
+              ['#ff4d4d', 'severity ≥ 7'],
+              ['#ffab40', '5.5–7'],
+              ['#26c6da', 'trauma hospital'],
+              ['#ffd166', 'ambulance'],
+            ].map(([color, label]) => (
+              <span key={label} style={styles.legendItem}>
+                <i style={{ background: color }} /> {label}
+              </span>
+            ))}
           </div>
         </section>
-        <aside style={styles.feed}>
-          <h3>Live Incident Feed</h3>
-          <IncidentFeed incidents={incidents} onSelect={setSelected} />
+
+        <aside style={styles.side}>
+          <h3 style={styles.panelTitle}>Active incidents ({incidents.length})</h3>
+          <div style={styles.scroll}>
+            <IncidentBoard incidents={incidents} selectedId={selected} onSelect={openDetail} />
+          </div>
+          <h3 style={styles.panelTitle}>Hospitals</h3>
+          <div style={styles.scrollSmall}>
+            <HospitalPanel hospitals={hospitals} />
+          </div>
         </aside>
+
+        <section style={styles.detail}>
+          {detail ? (
+            <IncidentDetail incident={detail} onCancel={onCancel} />
+          ) : (
+            <p style={styles.placeholder}>
+              Select an incident to view its assignment, impact factors and timeline.
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );
 }
 
-function dot(connected: boolean | null): React.CSSProperties {
-  const color = connected === null ? '#e0a94f' : connected ? '#2e7d32' : '#c62828';
-  return { ...styles.dot, background: color };
-}
-
-function modeBtn(active: boolean): React.CSSProperties {
-  return {
-    ...styles.modeBtn,
-    ...(active ? { background: '#0b3d5c', color: '#fff', borderColor: '#2e8bc0' } : {}),
-  };
+function dot(ok: boolean): React.CSSProperties {
+  return { width: 9, height: 9, borderRadius: 9, background: ok ? '#66bb6a' : '#ef5350' };
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  shell: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#0c1620', color: '#dff1fa', fontFamily: "'Helvetica Neue', Arial, sans-serif" },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#0b1f33', borderBottom: '1px solid #1f3a4b' },
-  headerRight: { display: 'flex', alignItems: 'center', gap: 14 },
-  dot: { width: 10, height: 10, borderRadius: 10, display: 'inline-block' },
+  shell: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#0b1620', color: '#dff1fa', fontFamily: "'Helvetica Neue', Arial, sans-serif" },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#0d2133', borderBottom: '1px solid #1d3f57' },
+  brand: { fontSize: 16, margin: 0, fontWeight: 700 },
+  headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
+  statusText: { fontSize: 12, color: '#8fb6d1' },
+  primary: { background: '#0b5c8a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontWeight: 600, cursor: 'pointer' },
   main: { flex: 1, display: 'flex', overflow: 'hidden' },
-  world: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' },
-  controls: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#0d1b28', borderBottom: '1px solid #1f3a4b', flexWrap: 'wrap' },
-  ctrlLabel: { color: '#8196a8', fontSize: 12, fontWeight: 600 },
-  modeBtn: { background: '#16324f', color: '#9fc7e0', border: '1px solid #24445e', padding: '5px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600 },
-  slider: { accentColor: '#2e8bc0', width: 120 },
-  canvas: { flex: 1, position: 'relative' },
-  feed: { width: 300, borderLeft: '1px solid #1f3a4b', overflowY: 'auto', background: '#0d1b28' },
+  mapPane: { flex: 1, minWidth: 0, position: 'relative' },
+  legend: { position: 'absolute', left: 12, bottom: 12, display: 'flex', gap: 14, background: 'rgba(8,20,30,0.85)', border: '1px solid #1d3f57', borderRadius: 8, padding: '6px 10px', fontSize: 11, color: '#8fb6d1' },
+  legendItem: { display: 'inline-flex', alignItems: 'center', gap: 5 },
+  side: { width: 330, borderLeft: '1px solid #1d3f57', background: '#0d2133', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  panelTitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: '#6f8ba1', margin: '12px 12px 6px 12px' },
+  scroll: { flex: 1, overflowY: 'auto', padding: '0 12px 8px 12px', minHeight: 120 },
+  scrollSmall: { maxHeight: 240, overflowY: 'auto', padding: '0 12px 12px 12px' },
+  detail: { width: 340, borderLeft: '1px solid #1d3f57', background: '#0d2133', display: 'flex', flexDirection: 'column' },
+  placeholder: { color: '#6f8ba1', fontSize: 13, padding: 18 },
 };

@@ -1,31 +1,39 @@
-# Part 2 — Hospital Website · Web Console
+# Hospital Response Console
 
-The responder console for emergency operators and hospitals: a canvas game view of the live city
-(vehicles, incidents, ambulances, hospitals), a live incident feed over WebSocket, and live
-mode/speed controls. Analytics live in the separate [`data-analytics`](../../data-analytics) part.
+Operator/hospital-facing web console for the hospital part.
 
-## Ownership
+## What it shows
 
-Team member 2 (with [`../backend`](../backend)).
+- **Live map** — hospitals (colour-coded by trauma level, with free beds), ambulances moving in
+  real time, and incidents pulsing by severity.
+- **Active incidents** — severity, current status, destination, assigned units.
+- **Hospital capacity** — occupancy bars and free beds per hospital.
+- **Incident detail** — assignment, impact factors, and the full lifecycle timeline.
+- **Report crash** — posts a test crash to `POST /incidents` so the whole pipeline can be
+  exercised from the UI.
+
+Everything updates from the WebSocket stream (`/stream`); a 4-second poll is a safety net.
 
 ## Run
 
 ```bash
 npm install
-npm run dev       # opens http://localhost:5173
+npm run dev       # http://localhost:5173
 ```
 
-Requires the backend on port 8000 (see [`../backend`](../backend)).
+Requires the backend on port 8000. Override with `VITE_API` and `VITE_WS` if it runs elsewhere.
 
 ## Layout
 
 ```
 src/
-  main.tsx / App.tsx          # shell + mode/speed controls
-  types.ts                    # contract payload types
-  api.ts                      # REST client (/alerts, /sim/config)
-  hooks/useSocket.ts          # subscription to backend WS events
+  main.tsx / App.tsx      shell, data flow, layout
+  api.ts                  REST client + WS url
+  types.ts                payload types
+  hooks/useStream.ts      WebSocket subscription with auto-reconnect
   components/
-    CanvasView.tsx            # game view: roads, vehicles, incidents, ambulances
-    IncidentFeed.tsx          # live event list
+    MapCanvas.tsx         canvas map (hospitals, ambulances, incidents)
+    IncidentBoard.tsx     active incident list + status pills
+    IncidentDetail.tsx    timeline drawer
+    HospitalPanel.tsx     capacity bars
 ```

@@ -1,92 +1,63 @@
-export interface SensorSample {
-  schema_version: string;
-  type: 'sensor_sample';
-  t: number;
-  trip_id: string;
-  seq: number;
-  gps: { lat: number; lon: number; speed_mps: number };
-  accel: { x: number; y: number; z: number; g: number };
-  gyro: { x: number; y: number; z: number };
-  context: { hour: number; weather: string; road: string };
+export type IncidentStatus =
+  | 'detected'
+  | 'contacts_notified'
+  | 'ambulance_assigned'
+  | 'en_route_to_scene'
+  | 'on_scene'
+  | 'en_route_to_hospital'
+  | 'at_hospital'
+  | 'closed'
+  | 'cancelled';
+
+export interface IncidentEvent {
+  status: IncidentStatus;
+  note: string | null;
+  at_scene: boolean;
+  created_at: string | null;
 }
 
-export interface Trip {
-  trip_id: string;
-  dt: number;
-  label: 'crash' | 'near_miss' | 'normal';
-  crash: { time_s: number; severity: number; impact_factors: Record<string, number> } | null;
-  samples: SensorSample[];
-}
-
-export interface CrashDetectedPayload {
-  schema_version: string;
-  type: 'crash_detected';
-  trip_id: string;
-  t: number;
-  location: { lat: number; lon: number };
-  severity: number;
-  medical_profile_ref: string;
-  detection: { rule: boolean; ml_confidence: number };
-  factors: {
-    peak_g: number;
-    delta_v_mps: number;
-    speed_at_impact_mps: number;
-    impact_type: string;
-    post_crash_inactive: boolean;
-    medical_risk: number;
-  };
-}
-
-export interface RoutePoint {
-  lat: number;
-  lon: number;
-}
-
-export interface EmergencyAlert {
-  schema_version: string;
-  type: 'emergency_alert';
-  alert_id: string;
-  status: string;
-  severity: number;
-  location: { lat: number; lon: number };
-  contacts_notified: string[];
-  assignment: { hospital_id: string; ambulance_id: string };
-  eta_seconds: number;
-  route?: RoutePoint[];
-  created_at: string;
-}
-
-export interface DispatchUpdate {
-  schema_version: string;
-  type: 'dispatch_update';
-  alert_id: string;
-  ambulance_id: string;
-  eta_seconds: number;
-  state: string;
-  route: Array<[number, number]>;
-}
-
-export interface VehicleState {
-  schema_version: string;
-  type: 'vehicle_state';
-  trip_id: string;
-  lat: number;
-  lon: number;
-  speed_mps: number;
-  status: 'driving' | 'crashed' | 'idle';
-}
-
-export interface IncidentRow {
+export interface Incident {
   alert_id: string;
   trip_id: string;
   severity: number;
   lat: number;
   lon: number;
-  status: string;
+  status: IncidentStatus;
+  destination: string;
+  medical_profile_ref: string | null;
+  assignment: { hospital_id: string | null; ambulance_ids: string[] };
+  eta_scene_seconds: number | null;
+  eta_hospital_seconds: number | null;
+  detection: Record<string, unknown> | null;
+  impact_factors: Record<string, number> | null;
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  events?: IncidentEvent[];
+}
+
+export interface Hospital {
   hospital_id: string;
-  ambulance_id: string;
-  contacts_notified: string;
-  created_at: string;
+  name: string;
+  lat: number;
+  lon: number;
+  capacity: number;
+  trauma_level: number;
+  current_load: number;
+  free_beds: number;
 }
 
-export type WsEvent = EmergencyAlert | DispatchUpdate | VehicleState;
+export interface Ambulance {
+  ambulance_id: string;
+  lat: number;
+  lon: number;
+  status: string;
+  hospital_id: string | null;
+  incident_id: number | null;
+}
+
+export type StreamEvent =
+  | { type: 'incident_detected'; incident: Incident; required_resources: Record<string, unknown> }
+  | { type: 'incident_status'; alert_id: string; status: IncidentStatus; note: string | null; at_scene: boolean; at: string }
+  | { type: 'fleet_update'; alert_id: string; status: IncidentStatus; ambulances: Ambulance[] }
+  | { type: 'hospitals_update'; hospitals: Hospital[] };
