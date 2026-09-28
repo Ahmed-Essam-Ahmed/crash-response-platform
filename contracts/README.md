@@ -44,6 +44,7 @@ lifecycle and now emits `incident_detected`, `incident_status`, `fleet_update`, 
 | `GET`  | `/incidents/active` | Everything not yet closed |
 | `GET`  | `/incidents/{alert_id}` | Detail with timeline |
 | `POST` | `/incidents/{alert_id}/cancel` | Cancel an active incident |
+| `POST` | `/incidents/{alert_id}/advance` | Move an incident to its next legal lifecycle state |
 | `GET`  | `/hospitals` | Hospitals with capacity and load |
 | `GET`  | `/hospitals/{code}/incoming` | Active incidents for a hospital |
 | `GET`  | `/fleet` | Ambulances with live positions |

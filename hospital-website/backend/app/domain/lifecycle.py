@@ -27,6 +27,17 @@ TRANSITIONS = {
 
 TERMINAL = {Status.CLOSED, Status.CANCELLED}
 
+HAPPY_PATH = [
+    Status.DETECTED,
+    Status.CONTACTS_NOTIFIED,
+    Status.AMBULANCE_ASSIGNED,
+    Status.EN_ROUTE_TO_SCENE,
+    Status.ON_SCENE,
+    Status.EN_ROUTE_TO_HOSPITAL,
+    Status.AT_HOSPITAL,
+    Status.CLOSED,
+]
+
 ACTIVE_STATUSES = {
     Status.DETECTED,
     Status.CONTACTS_NOTIFIED,
@@ -70,3 +81,16 @@ def is_terminal(status) -> bool:
 
 def is_active(status) -> bool:
     return Status(status) in ACTIVE_STATUSES
+
+
+def default_next(status):
+    current = Status(status)
+    if current not in HAPPY_PATH:
+        return None
+    index = HAPPY_PATH.index(current)
+    return HAPPY_PATH[index + 1] if index + 1 < len(HAPPY_PATH) else None
+
+
+def step_index(status) -> int:
+    current = Status(status)
+    return HAPPY_PATH.index(current) if current in HAPPY_PATH else 0

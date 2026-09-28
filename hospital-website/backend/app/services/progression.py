@@ -157,6 +157,14 @@ async def tick() -> None:
         db.close()
 
 
+async def advance(db, incident, note="advanced by hospital staff") -> models.Incident:
+    target = lifecycle.default_next(incident.status)
+    if target is None:
+        raise lifecycle.InvalidTransition(incident.status, "no further step")
+    await _transition(db, incident, target, note, at_scene=target is lifecycle.Status.ON_SCENE)
+    return incident
+
+
 async def run() -> None:
     while True:
         try:

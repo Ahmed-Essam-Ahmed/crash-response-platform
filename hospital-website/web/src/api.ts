@@ -22,6 +22,9 @@ export const fetchIncident = (alertId: string) =>
 export const cancelIncident = (alertId: string) =>
   request<Incident>(`/incidents/${encodeURIComponent(alertId)}/cancel`, { method: 'POST' });
 
+export const advanceIncident = (alertId: string) =>
+  request<Incident>(`/incidents/${encodeURIComponent(alertId)}/advance`, { method: 'POST' });
+
 export const reportCrash = (body: Record<string, unknown>) =>
   request<Incident>('/incidents', { method: 'POST', body: JSON.stringify(body) });
 

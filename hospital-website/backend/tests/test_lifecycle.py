@@ -45,6 +45,32 @@ class LifecycleTest(unittest.TestCase):
     def test_unknown_status_rejected(self):
         self.assertFalse(lifecycle.can_transition("not-a-status", Status.CLOSED))
 
+    def test_default_next_walks_the_happy_path(self):
+        path = [
+            Status.DETECTED,
+            Status.CONTACTS_NOTIFIED,
+            Status.AMBULANCE_ASSIGNED,
+            Status.EN_ROUTE_TO_SCENE,
+            Status.ON_SCENE,
+            Status.EN_ROUTE_TO_HOSPITAL,
+            Status.AT_HOSPITAL,
+            Status.CLOSED,
+        ]
+        for current, nxt in zip(path, path[1:]):
+            self.assertEqual(lifecycle.default_next(current), nxt)
+        self.assertIsNone(lifecycle.default_next(Status.CLOSED))
+        self.assertIsNone(lifecycle.default_next(Status.CANCELLED))
+
+    def test_default_next_never_suggests_cancelling(self):
+        suggested = {lifecycle.default_next(s) for s in lifecycle.HAPPY_PATH}
+        self.assertNotIn(Status.CANCELLED, suggested)
+
+    def test_step_index_progresses_monotonically(self):
+        indices = [lifecycle.step_index(s) for s in lifecycle.HAPPY_PATH]
+        self.assertEqual(indices, sorted(indices))
+        self.assertEqual(lifecycle.step_index(Status.DETECTED), 0)
+        self.assertEqual(lifecycle.step_index(Status.CLOSED), len(lifecycle.HAPPY_PATH) - 1)
+
 
 if __name__ == "__main__":
     unittest.main()

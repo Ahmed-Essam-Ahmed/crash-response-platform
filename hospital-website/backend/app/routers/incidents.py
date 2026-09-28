@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .. import models, serializers
 from ..db import get_db
 from ..domain import lifecycle
-from ..services import intake
+from ..services import intake, progression
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -68,3 +68,17 @@ async def cancel_incident(alert_id: str, db: Session = Depends(get_db)):
             detail=f"cannot cancel from '{incident.status}'",
         )
     return serializers.incident_to_dict(await intake.cancel_incident(db, incident))
+
+
+@router.post("/{alert_id}/advance")
+async def advance_incident(alert_id: str, db: Session = Depends(get_db)):
+    incident = _find(db, alert_id)
+    nxt = lifecycle.default_next(incident.status)
+    if nxt is None:
+        raise HTTPException(status_code=409, detail=f"'{incident.status}' has no further step")
+    try:
+        await progression.advance(db, incident)
+    except lifecycle.InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.refresh(incident)
+    return serializers.incident_to_dict(incident)

@@ -1,39 +1,66 @@
-# Hospital Response Console
+# Hospital console
 
-Operator/hospital-facing web console for the hospital part.
-
-## What it shows
-
-- **Live map** — hospitals (colour-coded by trauma level, with free beds), ambulances moving in
-  real time, and incidents pulsing by severity.
-- **Active incidents** — severity, current status, destination, assigned units.
-- **Hospital capacity** — occupancy bars and free beds per hospital.
-- **Incident detail** — assignment, impact factors, and the full lifecycle timeline.
-- **Report crash** — posts a test crash to `POST /incidents` so the whole pipeline can be
-  exercised from the UI.
-
-Everything updates from the WebSocket stream (`/stream`); a 4-second poll is a safety net.
-
-## Run
+The live view an emergency department member actually uses. Designed to be readable at a glance
+under pressure: plain language instead of status codes, one obvious next action per case, and no
+technical jargon anywhere in the default view.
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173
+npm run dev        # http://localhost:5173
 ```
 
-Requires the backend on port 8000. Override with `VITE_API` and `VITE_WS` if it runs elsewhere.
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API` | `http://localhost:8000` | Hospital service base URL |
+| `VITE_WS` | `ws://localhost:8000/stream` | Live update socket |
 
-## Layout
+## Design
+
+Built on **Tailwind CSS v4** with a small token layer, so both themes come from one source of
+truth.
+
+- **Light and dark**, defaulting to the operating system preference and remembered per browser in
+  `localStorage`.
+- One screen, one job: *what needs you now*. Cases are large cards sorted by severity.
+- **Plain language.** `en_route_to_scene` is never shown. The card reads "Ambulance is driving to
+  the crash", and severity is a word (`Mild`, `Moderate`, `Serious`, `Critical`) rather than a
+  number. Raw codes and decimals are kept in the details sheet for people who want them.
+- **One primary action per case**, derived from the incident's position in the lifecycle, so the
+  correct thing to do is always the most prominent thing on the card.
+- A thin progress bar shows how far the case has travelled, with the current stage named in words.
+- Live status is a single dot with a soft pulse. It turns amber and reads "Reconnecting" if the
+  socket drops, and reconnects with backoff.
+- The map is supporting context, not the main event.
+- Tap targets are at least 32px, and the layout collapses cleanly to a single column on a phone.
+
+## Behaviour
+
+State comes from a REST poll every 5 seconds for a reliable baseline, then live WebSocket events
+patch it on top for immediacy. Both paths are idempotent, so a reconnect can never duplicate a
+case.
+
+Actions call the hospital service and refresh immediately:
+
+| Button | Request |
+|---|---|
+| Primary action on a card | `POST /incidents/{alert_id}/advance` |
+| Cancel this call | `POST /incidents/{alert_id}/cancel` |
+| Report a crash | `POST /incidents` |
+| Details | `GET /incidents/{alert_id}` (full event history) |
+
+The details sheet slides in from the right, closes on `Escape` or a click outside, and shows the
+sensor findings plus the complete event timeline.
+
+## Structure
 
 ```
 src/
-  main.tsx / App.tsx      shell, data flow, layout
-  api.ts                  REST client + WS url
-  types.ts                payload types
-  hooks/useStream.ts      WebSocket subscription with auto-reconnect
-  components/
-    MapCanvas.tsx         canvas map (hospitals, ambulances, incidents)
-    IncidentBoard.tsx     active incident list + status pills
-    IncidentDetail.tsx    timeline drawer
-    HospitalPanel.tsx     capacity bars
+  App.tsx                 state, polling, stream handling
+  api.ts                  hospital service client
+  theme.tsx               light/dark context
+  lib/status.ts           status -> plain language, severity words, tones
+  lib/format.ts           relative times and ETAs
+  lib/useStream.ts        websocket with reconnect backoff
+  components/             TopBar, StatRow, IncidentCard, Stepper, MiniMap,
+                          CapacityPanel, DetailSheet
 ```
