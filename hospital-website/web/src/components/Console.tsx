@@ -20,7 +20,7 @@ import { TopBar } from './TopBar';
 import { StatRow } from './StatRow';
 import { IncidentCard } from './IncidentCard';
 import { OfferCard } from './OfferCard';
-import { MiniMap } from './MiniMap';
+import { LiveMap } from './LiveMap';
 import { ResourcePanel } from './ResourcePanel';
 import { StaffSheet } from './StaffSheet';
 import { DetailSheet } from './DetailSheet';
@@ -49,6 +49,7 @@ export function Console() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [staffOpen, setStaffOpen] = useState(false);
+  const [mapFocus, setMapFocus] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const pending = useRef<number | undefined>(undefined);
@@ -390,7 +391,15 @@ export function Console() {
               </details>
             )}
 
-            {fleet && <MiniMap hospital={fleet.hospital} ambulances={fleet.ambulances} incidents={assigned} />}
+            {fleet && (
+              <LiveMap
+                hospital={fleet.hospital}
+                ambulances={fleet.ambulances}
+                incidents={[...offers.map((o) => o.incident), ...assigned]}
+                focus={mapFocus}
+                onFocusCase={(alertId) => setMapFocus(alertId)}
+              />
+            )}
           </section>
 
           <aside className="lg:sticky lg:top-24 lg:self-start">

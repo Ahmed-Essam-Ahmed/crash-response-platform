@@ -4,6 +4,7 @@ import type { Incident } from '../types';
 import { severityWord, toneForSeverity } from '../lib/status';
 import { clock, distance, minutes, todayTime } from '../lib/format';
 import { copyText } from '../lib/clipboard';
+import { ContactList, ImpactFacts } from './CaseFacts';
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -90,6 +91,7 @@ export function DetailSheet({ incident, onClose }: { incident: Incident | null; 
               <div className="min-w-0" data-tone={toneForSeverity(incident.severity)}>
                 <span className="chip rounded-full px-2.5 py-1 text-xs font-semibold">
                   {severityWord(incident.severity)}
+                  <span className="tnum ml-1.5 opacity-70">{incident.severity.toFixed(1)}/10</span>
                 </span>
                 <h2 className="tnum mt-2 text-lg font-semibold tracking-tight">{incident.alert_id}</h2>
                 <p className="text-sm text-muted capitalize">{incident.status.replace(/_/g, ' ')}</p>
@@ -107,9 +109,25 @@ export function DetailSheet({ incident, onClose }: { incident: Incident | null; 
             </header>
 
             <div className="flex-1 space-y-6 overflow-y-auto p-5">
-              {incident.severity_summary && (
-                <p className="surface-2 rounded-xl px-4 py-3 text-sm">{incident.severity_summary}</p>
-              )}
+              <section>
+                <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
+                  How it happened
+                </h3>
+                <p className="mt-2 text-sm">
+                  {incident.mechanism ??
+                    incident.severity_summary ??
+                    'The reporting app did not describe the crash.'}
+                </p>
+                {incident.occurred_at && (
+                  <p className="tnum mt-1.5 text-xs text-muted">
+                    Crash reported at {todayTime(incident.occurred_at)}
+                  </p>
+                )}
+              </section>
+
+              <ImpactFacts impact={incident.impact} />
+
+              <ContactList contacts={incident.emergency_contacts} />
 
               <div className="grid grid-cols-2 gap-3">
                 {[

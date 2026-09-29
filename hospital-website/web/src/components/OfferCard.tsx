@@ -2,7 +2,8 @@ import { forwardRef, useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Button } from './Button';
 import { severityWord, toneForSeverity } from '../lib/status';
-import { distance, minutes, countdown, todayTime } from '../lib/format';
+import { distance, minutes, countdown, clockTime } from '../lib/format';
+import { ContactSummary, MechanismLine } from './CaseFacts';
 import { useHoverFx } from '../lib/useHoverFx';
 import type { Offer } from '../types';
 
@@ -58,15 +59,37 @@ export const OfferCard = forwardRef<
             <h3 className="mt-2 text-lg leading-snug font-semibold tracking-tight">
               {patient?.name ? `${patient.name} needs a hospital` : 'A crash needs a hospital'}
             </h3>
-            <p className="mt-1 text-sm text-muted">
-              {offer.incident.location.label ?? `${offer.incident.location.lat.toFixed(4)}, ${offer.incident.location.lon.toFixed(4)}`}
-              {' · '}
-              {distance(offer.distance_m)} away
-              {offer.eta_seconds != null && <> · about {minutes(offer.eta_seconds)} by road</>}
+            <MechanismLine mechanism={offer.incident.mechanism} />
+
+            <dl className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+              <div className="flex gap-1.5">
+                <dt className="text-muted">Crash at</dt>
+                <dd className="tnum font-medium">{clockTime(offer.incident.occurred_at) ?? 'just now'}</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-muted">Severity</dt>
+                <dd className="tnum font-medium">
+                  {offer.incident.severity.toFixed(1)}
+                  <span className="text-muted">/10</span>
+                </dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-muted">Distance</dt>
+                <dd className="tnum font-medium">{distance(offer.distance_m)}</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-muted">Drive time</dt>
+                <dd className="tnum font-medium">
+                  {offer.eta_seconds != null ? `about ${minutes(offer.eta_seconds)}` : 'unknown'}
+                </dd>
+              </div>
+            </dl>
+
+            <p className="mt-2 text-sm text-muted">
+              {offer.incident.location.label ??
+                `${offer.incident.location.lat.toFixed(4)}, ${offer.incident.location.lon.toFixed(4)}`}
             </p>
-            <p className="tnum mt-1 text-xs text-muted">
-              Reported {offer.incident.occurred_at ? todayTime(offer.incident.occurred_at) : 'just now'}
-            </p>
+            <ContactSummary contacts={offer.incident.emergency_contacts} />
           </div>
 
           <div className="shrink-0 text-right">

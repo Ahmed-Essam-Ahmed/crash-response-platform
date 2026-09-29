@@ -144,12 +144,31 @@ src/
   types.ts                response and event types
   index.css               OKLCH tokens, fluid type, component layer, interaction layer
   lib/status.ts           status -> plain language, severity words, tones
-  lib/format.ts           relative times, ETAs, distance
+  lib/format.ts           relative times, ETAs, distance, crash time, impact facts
   lib/useStream.ts        token-scoped websocket with reconnect backoff
   lib/useHoverFx.ts       pointer spotlight for a surface
   lib/clipboard.ts        copy-with-feedback helper
   lib/viewTransition.ts   View Transition wrapper with a no-op fallback
   components/             AuthScreen, Console, TopBar, StatRow, OfferCard,
-                          IncidentCard, Stepper, DetailSheet, MiniMap,
-                          ResourcePanel, StaffSheet, Button, Toaster
+                          IncidentCard, Stepper, DetailSheet, LiveMap,
+                          CaseFacts, ResourcePanel, StaffSheet, Button, Toaster
 ```
+
+## The live map
+
+`LiveMap` is a real slippy map, not a schematic. It uses Leaflet directly with CARTO raster tiles
+over OpenStreetMap data, so there is no API key, no billing, and no quota to run out during a demo.
+
+It draws four things: this hospital as a fixed `H` pin, every live case as a `!` pin coloured by
+severity tone, every in-service ambulance as an `A` pin that turns red and gains a `+` while it is
+moving, and a dashed line between the hospital and the crash for each case the hospital has taken.
+Ambulance positions come from the `fleet_update` stream event, which the backend emits every half
+second, so the pins move on their own without polling.
+
+The map fits every layer once on first load and then leaves the view alone, because a dispatcher
+panning to a case should not have the viewport yanked back by the next position update. Selecting a
+case flies to its pin instead.
+
+Two details worth keeping: tiles swap between the light and dark basemaps when the theme changes,
+and the whole map is confined to `LiveMap` so swapping in a paid provider later touches one file.
+

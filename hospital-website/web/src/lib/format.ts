@@ -39,3 +39,36 @@ export function todayTime(iso: string) {
     minute: '2-digit',
   });
 }
+
+export function clockTime(iso: string | null) {
+  if (!iso) return null;
+  const d = new Date(iso.endsWith('Z') ? iso : `${iso}Z`);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+const IMPACT_LABELS: Record<string, [string, string]> = {
+  impact_type: ['type', ''],
+  peak_g: ['peak g', 'g'],
+  delta_v_mps: ['change in speed', 'm/s'],
+  speed_mps: ['speed at impact', 'm/s'],
+  occupants: ['occupants', ''],
+  secondary: ['secondary impact', ''],
+};
+
+export function impactFacts(impact: Record<string, unknown> | null | undefined) {
+  if (!impact) return [] as { label: string; value: string }[];
+  const out: { label: string; value: string }[] = [];
+  for (const [key, [label, unit]] of Object.entries(IMPACT_LABELS)) {
+    const raw = impact[key];
+    if (raw == null || raw === '') continue;
+    if (key === 'secondary' && raw === false) continue;
+    const value = typeof raw === 'number' ? `${Number.isInteger(raw) ? raw : raw.toFixed(1)}${unit ? ` ${unit}` : ''}` : String(raw);
+    out.push({ label, value });
+  }
+  return out;
+}
+
+export function contactLine(contact: { name: string | null; relation: string | null; phone: string | null }) {
+  const who = [contact.name, contact.relation && `(${contact.relation})`].filter(Boolean).join(' ');
+  return who || contact.phone || 'Unnamed contact';
+}

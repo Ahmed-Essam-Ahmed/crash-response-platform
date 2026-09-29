@@ -29,6 +29,14 @@ export interface Patient {
   notes: string | null;
 }
 
+export interface EmergencyContact {
+  name: string | null;
+  relation: string | null;
+  phone: string | null;
+  email: string | null;
+  primary: boolean;
+}
+
 export interface CaseLocation {
   lat: number;
   lon: number;
@@ -51,6 +59,9 @@ export interface Incident {
   severity_source: string;
   severity_confidence: number | null;
   severity_summary: string | null;
+  mechanism: string | null;
+  emergency_contacts: EmergencyContact[];
+  impact: Record<string, unknown>;
   status: IncidentStatus;
   status_step: number;
   destination: string;

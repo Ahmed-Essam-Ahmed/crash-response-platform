@@ -1,7 +1,8 @@
 import { forwardRef } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { plainFor, severityWord, toneForSeverity } from '../lib/status';
-import { ago, distance, minutes } from '../lib/format';
+import { ago, clockTime, distance, minutes } from '../lib/format';
+import { MechanismLine } from './CaseFacts';
 import { useHoverFx } from '../lib/useHoverFx';
 import { Stepper } from './Stepper';
 import { Button } from './Button';
@@ -67,16 +68,21 @@ export const IncidentCard = forwardRef<
               <div className="flex flex-wrap items-center gap-2">
                 <span className="chip rounded-full px-2.5 py-1 text-xs font-semibold">
                   {severityWord(incident.severity)}
+                  <span className="tnum ml-1.5 opacity-70">{incident.severity.toFixed(1)}/10</span>
                 </span>
                 <span className="tnum text-xs text-muted">
                   {ago(incident.created_at ?? incident.updated_at ?? new Date().toISOString())}
                 </span>
+                {incident.occurred_at && (
+                  <span className="tnum text-xs text-muted">crash at {clockTime(incident.occurred_at)}</span>
+                )}
               </div>
 
               <h3 className="mt-2 text-lg leading-snug font-semibold tracking-tight @xl:text-xl">
                 {headline}
               </h3>
               <p className="mt-1 text-sm font-medium text-ink-soft">{patientLine(incident)}</p>
+              <MechanismLine mechanism={incident.mechanism} />
 
               <p className="mt-1 text-sm text-muted">
                 {location.label ?? `${location.lat.toFixed(4)}, ${location.lon.toFixed(4)}`}
