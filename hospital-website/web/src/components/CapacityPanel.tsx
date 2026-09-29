@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react';
+import { useHoverFx } from '../lib/useHoverFx';
 import type { Hospital } from '../types';
 
 function Bar({ used, capacity }: { used: number; capacity: number }) {
@@ -21,8 +22,16 @@ function Bar({ used, capacity }: { used: number; capacity: number }) {
 }
 
 export function CapacityPanel({ hospitals, loading }: { hospitals: Hospital[]; loading: boolean }) {
+  const { node, onPointerMove, onPointerLeave } = useHoverFx();
+  const reduce = useReducedMotion();
+
   return (
-    <div className="card p-5">
+    <div
+      ref={node}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+      className="card fx fx-border p-5"
+    >
       <h2 className="text-sm font-semibold tracking-tight">Hospital capacity</h2>
 
       {loading ? (
@@ -37,7 +46,11 @@ export function CapacityPanel({ hospitals, loading }: { hospitals: Hospital[]; l
       ) : (
         <ul className="mt-4 space-y-4">
           {hospitals.map((hospital) => (
-            <li key={hospital.hospital_id}>
+            <motion.li
+              key={hospital.hospital_id}
+              whileHover={reduce ? undefined : { x: 4 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+            >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="truncate text-sm font-medium">{hospital.name}</p>
                 <p className="tnum shrink-0 text-xs text-muted">{hospital.free_beds} free</p>
@@ -49,7 +62,7 @@ export function CapacityPanel({ hospitals, loading }: { hospitals: Hospital[]; l
                 </span>
               </div>
               <p className="mt-1.5 text-2xs text-muted">Trauma level {hospital.trauma_level}</p>
-            </li>
+            </motion.li>
           ))}
         </ul>
       )}

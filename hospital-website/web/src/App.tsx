@@ -10,7 +10,8 @@ import {
   reportCrash,
 } from './api';
 import { useStream } from './lib/useStream';
-import { toneForSeverity } from './lib/status';
+import { withViewTransition } from './lib/viewTransition';
+import { AuroraBackground } from './components/AuroraBackground';
 import { ThemeProvider } from './theme';
 import { TopBar } from './components/TopBar';
 import { StatRow } from './components/StatRow';
@@ -156,7 +157,7 @@ function Console() {
   const openDetails = async (incident: Incident) => {
     setSelected(incident);
     const fresh = await fetchIncident(incident.alert_id).catch(() => null);
-    if (fresh) setSelected(fresh);
+    if (fresh) setSelected((current) => (current?.alert_id === fresh.alert_id ? fresh : current));
   };
 
   const report = async () => {
@@ -175,6 +176,7 @@ function Console() {
 
   return (
     <div className="min-h-dvh">
+      <AuroraBackground />
       <a
         href="#cases"
         className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-fg"
@@ -233,7 +235,7 @@ function Console() {
                       key={option.key}
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setFilter(option.key)}
+                      onClick={() => withViewTransition(() => setFilter(option.key))}
                       className={`relative min-h-10 rounded-lg px-3.5 text-sm font-medium transition-colors ${
                         active ? 'text-ink' : 'text-muted hover:text-ink'
                       }`}

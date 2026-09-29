@@ -43,7 +43,9 @@ settle naturally when a value changes mid-flight instead of snapping.
 
 - Cases enter, exit, and **reorder with layout animation** when severity changes their position.
 - The filter pill slides between tabs with a shared `layoutId`.
-- The details sheet springs in from the right, backdrop fades.
+- The details sheet springs in from the right and closes on a short tween, backdrop fades. The close
+  is a tween on purpose: a spring's asymptotic tail keeps an off-screen element mounted for roughly
+  800ms, and the sheet is already off-screen well before then.
 - Capacity bars and progress rails grow to their new value.
 - Live indicator pulses; spinners rotate; buttons and cards compress on press.
 - `prefers-reduced-motion: reduce` collapses every animation and transition to ~0s, and entrance
@@ -51,21 +53,47 @@ settle naturally when a value changes mid-flight instead of snapping.
 
 Motion is used to explain what changed, not to decorate. Nothing loops except the live pulse.
 
+## Interaction layer
+
+Hover is the primary way to read the board, so every surface reacts to the pointer.
+
+- **Cursor spotlight and tilt.** Cards track the pointer, driving a radial highlight via `--mx` /
+  `--my` and a `rotateX` / `rotateY` lift. `useHoverFx` writes the transform to the inner element
+  rather than the motion node, so it cannot fight the card's entrance and reorder animations.
+- **Magnetic buttons.** Primary actions pull toward the cursor, clamped to 9px. Two details matter:
+  the offset is measured against the button's **resting** rect, otherwise each move re-measures an
+  already-transformed box and the effect cancels itself to zero; and the hit area is expanded 14px
+  on a wrapper, otherwise the pull pushes the button out from under the cursor and hover flickers.
+- **Flowing border.** `@property --border-angle` registers the angle as a genuinely animatable
+  value, which is what lets a conic gradient travel around the border instead of snapping between
+  positions. It degrades to a static border when motion is reduced.
+- **Sheen sweep** across buttons on hover, and a count-up on the stat tiles.
+- **Aurora and grain.** Three blurred, slowly drifting colour fields plus a fine noise layer, so
+  large flat areas stop reading as dead. Both are decorative and hidden from assistive tech.
+- **View Transitions** animate discrete state changes such as switching filters, as a progressive
+  enhancement that falls back to an instant update.
+
 ## Responsiveness
 
-Verified at 320, 390, 768, 1024, 1280, 1536, 1920, and 2560px: **zero horizontal overflow at any
+Verified at 320, 390, 768, 1024, 1280, 1440, 1920, and 2560px: **zero horizontal overflow at any
 width**, no text below 10.5px, and no interactive target under 40px. Layout moves 1 → 2 → 4
-columns, the sidebar becomes sticky on wide screens, and labels collapse on small ones.
+columns, the sidebar becomes sticky on wide screens, and labels collapse on small ones. The
+magnetic hit area is absolutely positioned, so it never contributes to layout or scroll width.
 
 ## Accessibility
 
 - Skip link to the case board
-- Visible focus ring on every interactive element for keyboard users
+- Visible focus ring on every interactive element for keyboard users. The ring does not transition:
+  Tailwind's `transition-colors` includes `outline-color`, which would fade the indicator in from the
+  element's text colour and briefly dip below the required contrast.
+- Every control's accessible name contains its visible label, so voice-control users can say what
+  they see. The report button derives its name from its own text rather than a separate `aria-label`.
 - `aria-live` announcements for new cases and for the open-case count
 - `role="progressbar"` with values on each case's progress rail
 - `role="dialog"` + `aria-modal` on the sheet, focus moved in on open, restored on close
 - Body scroll locks while the sheet is open
-- Every button has an accessible name
+- `prefers-reduced-motion: reduce` disables the aurora drift, the border spin, the sheen, and all
+  tilt and magnetic movement, and skips entrance animations outright
 
 ## Behaviour
 
@@ -91,10 +119,13 @@ src/
   App.tsx                 state, polling, stream handling, filters
   api.ts                  hospital service client
   theme.tsx               light/dark context with View Transitions
-  index.css               OKLCH tokens, fluid type, component layer
+  index.css               OKLCH tokens, fluid type, component layer, interaction layer
   lib/status.ts           status -> plain language, severity words, tones
   lib/format.ts           relative times and ETAs
   lib/useStream.ts        websocket with reconnect backoff
+  lib/useHoverFx.ts       pointer spotlight and tilt for a surface
+  lib/viewTransition.ts   View Transition wrapper with a no-op fallback
   components/             TopBar, StatRow, IncidentCard, Stepper, MiniMap,
-                          CapacityPanel, DetailSheet, Toaster
+                          CapacityPanel, DetailSheet, Toaster, MagneticButton,
+                          AuroraBackground, AnimatedNumber
 ```

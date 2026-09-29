@@ -63,9 +63,13 @@ export function DetailSheet({
             aria-label={`Case ${incident.alert_id}`}
             initial={reduce ? { opacity: 0 } : { x: '100%' }}
             animate={reduce ? { opacity: 1 } : { x: 0 }}
-            exit={reduce ? { opacity: 0 } : { x: '100%' }}
+            exit={
+              reduce
+                ? { opacity: 0, transition: { duration: 0.18 } }
+                : { x: '100%', transition: { type: 'tween', duration: 0.28, ease: [0.22, 1, 0.36, 1] } }
+            }
             transition={{ type: 'spring', stiffness: 320, damping: 36, mass: 0.9 }}
-            className="relative flex h-full w-full max-w-[30rem] flex-col border-l border-line bg-surface shadow-lift outline-none"
+            className="relative flex h-full w-full max-w-[30rem] flex-col border-l border-line bg-surface/95 shadow-lift backdrop-blur-2xl outline-none"
           >
             <header className="flex items-start justify-between gap-4 border-b border-line p-5">
               <div className="min-w-0" data-tone={toneForSeverity(incident.severity)}>

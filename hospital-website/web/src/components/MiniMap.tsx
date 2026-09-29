@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { toneForSeverity } from '../lib/status';
 import type { Tone } from '../lib/status';
 import type { Ambulance, Hospital, Incident } from '../types';
@@ -25,6 +26,7 @@ export function MiniMap({
   incidents: Incident[];
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     const el = canvas.current;
@@ -128,12 +130,33 @@ export function MiniMap({
   }, [hospitals, ambulances, incidents]);
 
   return (
-    <section className="card overflow-hidden">
+    <section className="card relative overflow-hidden">
       <div className="flex items-baseline justify-between px-5 pt-4 pb-3">
         <h2 className="text-sm font-semibold tracking-tight">Where things are happening</h2>
-        <span className="text-xs text-muted">Live positions</span>
+        <motion.span
+          animate={reduce ? undefined : { opacity: [0.45, 1, 0.45] }}
+          transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+          className="text-xs text-muted"
+        >
+          Live positions
+        </motion.span>
       </div>
-      <canvas ref={canvas} className="block h-56 w-full @2xl:h-72" aria-label="Map of hospitals, ambulances and open cases" role="img" />
+      <canvas
+        ref={canvas}
+        onMouseMove={(e) => {
+          if (reduce) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width - 0.5) * 14;
+          const y = ((e.clientY - rect.top) / rect.height - 0.5) * 14;
+          e.currentTarget.style.transform = `perspective(900px) rotateY(${x}deg) rotateX(${-y}deg) scale(1.015)`;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = '';
+        }}
+        className="block h-56 w-full transition-transform duration-300 ease-out @2xl:h-72"
+        aria-label="Map of hospitals, ambulances and open cases"
+        role="img"
+      />
       <ul className="flex flex-wrap gap-x-4 gap-y-1.5 px-5 py-3.5 text-2xs text-muted">
         {(['critical', 'serious', 'moderate', 'mild'] as const).map((key) => (
           <li key={key} className="inline-flex items-center gap-1.5 capitalize">

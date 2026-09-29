@@ -1,4 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react';
+import { AnimatedNumber } from './AnimatedNumber';
+import { useHoverFx } from '../lib/useHoverFx';
 
 function Skeleton({ className }: { className: string }) {
   return <div className={`skeleton rounded-xl ${className}`} />;
@@ -14,37 +16,45 @@ function Tile({
   reduce,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   hint: string;
   tone?: 'critical' | 'mild';
   icon: React.ReactNode;
   index: number;
   reduce: boolean | null;
 }) {
-  const Icon = (
-    <span
-      data-tone={tone ?? 'mild'}
-      className={`grid size-9 place-items-center rounded-[0.625rem] ${
-        tone === 'critical' ? 'chip' : 'bg-primary-soft text-primary'
-      }`}
-    >
-      {icon}
-    </span>
-  );
+  const { node, onPointerMove, onPointerLeave } = useHoverFx();
 
   return (
     <motion.div
-      initial={reduce ? false : { opacity: 0, y: 10 }}
+      initial={reduce ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: reduce ? 0 : index * 0.05, ease: [0.22, 1, 0.36, 1] }}
-      className="card group p-4 transition-shadow duration-300 hover:shadow-lift"
+      transition={{ duration: 0.45, delay: reduce ? 0 : index * 0.06, ease: [0.22, 1, 0.36, 1] }}
+      style={{ perspective: 1000 }}
+      className="card"
     >
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">{label}</p>
-        {Icon}
+      <div
+        ref={node}
+        onPointerMove={onPointerMove}
+        onPointerLeave={onPointerLeave}
+        className="fx fx-border h-full p-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">{label}</p>
+          <motion.span
+            whileHover={reduce ? undefined : { scale: 1.12, rotate: -6 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 20 }}
+            data-tone={tone ?? 'mild'}
+            className={`grid size-9 place-items-center rounded-[0.625rem] ${
+              tone === 'critical' ? 'chip' : 'bg-primary-soft text-primary'
+            }`}
+          >
+            {icon}
+          </motion.span>
+        </div>
+        <p className="mt-2 text-2xl leading-none font-semibold tracking-tight">{value}</p>
+        <p className="mt-1.5 text-xs text-muted">{hint}</p>
       </div>
-      <p className="tnum mt-2 text-2xl leading-none font-semibold tracking-tight">{value}</p>
-      <p className="mt-1.5 text-xs text-muted">{hint}</p>
     </motion.div>
   );
 }
@@ -85,7 +95,7 @@ export function StatRow({
   const tiles = [
     {
       label: 'Open cases',
-      value: String(active ?? 0),
+      value: <AnimatedNumber value={active ?? 0} />,
       hint: active === 1 ? '1 patient being handled' : 'patients being handled',
       icon: (
         <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -95,7 +105,7 @@ export function StatRow({
     },
     {
       label: 'Critical',
-      value: String(critical),
+      value: <AnimatedNumber value={critical} />,
       hint: 'need the team ready',
       tone: 'critical' as const,
       icon: (
@@ -106,7 +116,12 @@ export function StatRow({
     },
     {
       label: 'Ambulances out',
-      value: `${ambulancesOut}/${fleetTotal}`,
+      value: (
+        <AnimatedNumber
+          value={ambulancesOut}
+          format={() => `${ambulancesOut}/${fleetTotal}`}
+        />
+      ),
       hint: 'crews currently responding',
       icon: (
         <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -118,7 +133,12 @@ export function StatRow({
     },
     {
       label: 'Beds free',
-      value: `${bedsFree}/${bedsTotal}`,
+      value: (
+        <AnimatedNumber
+          value={bedsFree}
+          format={() => `${bedsFree}/${bedsTotal}`}
+        />
+      ),
       hint: 'across all hospitals',
       icon: (
         <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
