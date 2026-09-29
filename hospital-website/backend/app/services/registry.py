@@ -65,7 +65,7 @@ def seed(db) -> None:
         db.commit()
 
     for spec in HOSPITALS:
-        hospital = db.query(models.Hospital).filter(models.Hospital.code == spec["code"]).first()
+        hospital = _match_demo_hospital(db, spec)
         if hospital is None:
             continue
         if not hospital.ambulances:
@@ -74,6 +74,13 @@ def seed(db) -> None:
             models.User.email == spec["email"]
         ).first():
             _seed_admin(db, hospital, spec["email"])
+
+
+def _match_demo_hospital(db, spec):
+    hospital = db.query(models.Hospital).filter(models.Hospital.code == spec["code"]).first()
+    if hospital is not None:
+        return hospital
+    return db.query(models.Hospital).filter(models.Hospital.name == spec["name"]).first()
 
 
 def _seed_fleet(db, hospital, count: int) -> None:

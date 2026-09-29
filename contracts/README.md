@@ -24,32 +24,50 @@ Emitted by `simulation` → consumed by `mobile-app` / `ai-model`.
 
 ### `crash_detected`
 Emitted by `ai-model` (or preliminary in `mobile-app`) → submitted to the hospital service via
-`POST /incidents`. See "The hospital service boundary" below for the accepted shape.
+`POST /cases`. See "The hospital service boundary" below for the accepted shape.
 
 ### Superseded events
 
 The earlier `emergency_alert`, `dispatch_update`, and `vehicle_state` events belonged to the first
-version of this platform. The hospital service has since been rebuilt around an explicit incident
-lifecycle and now emits `incident_detected`, `incident_status`, `fleet_update`, and
-`hospitals_update` instead — documented under "The hospital service boundary".
+version of this platform, as did the admin-wide `incident_detected`, `incident_status`,
+`fleet_update`, and `hospitals_update` events. The hospital service is now multi-tenant: a case is
+*offered* to the nearest eligible hospital and escalates, so the live vocabulary is `case_opened`,
+`case_escalated`, `case_unclaimed`, `case_status`, `offer_expired`, `fleet_update`, and
+`capacity_changed`. Every event is scoped to the hospitals that can actually see the case.
 
 ## REST Endpoints
 
 ### hospital-website/backend (port 8000)
 
+Everything a hospital sees is under `/me` and requires a bearer token; the token also carries that
+hospital's id, so no request can name a hospital it does not belong to.
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/incidents` | Report a crash — **the upstream input boundary** |
-| `GET`  | `/incidents` | List incidents |
-| `GET`  | `/incidents/active` | Everything not yet closed |
-| `GET`  | `/incidents/{alert_id}` | Detail with timeline |
-| `POST` | `/incidents/{alert_id}/cancel` | Cancel an active incident |
-| `POST` | `/incidents/{alert_id}/advance` | Move an incident to its next legal lifecycle state |
-| `GET`  | `/hospitals` | Hospitals with capacity and load |
-| `GET`  | `/hospitals/{code}/incoming` | Active incidents for a hospital |
-| `GET`  | `/fleet` | Ambulances with live positions |
+| `POST` | `/cases` | Report a crash — **the upstream input boundary**, keyed by `x-ingest-key` |
+| `POST` | `/auth/register` | Onboard a hospital and its first admin |
+| `POST` | `/auth/login` | Exchange email + password for a token |
+| `GET`  | `/auth/me` | Current user, role, and hospital |
+| `GET`  | `/auth/staff` | Team roster for the caller's hospital (any role) |
+| `POST` | `/auth/staff` | Add a colleague — **admin only** |
+| `DELETE` | `/auth/staff/{user_id}` | Remove a colleague — **admin only** |
+| `GET`  | `/me/cases` | Board: offers, assigned cases, and recently finished |
+| `GET`  | `/me/cases/{alert_id}` | One case with its full timeline |
+| `POST` | `/me/cases/{alert_id}/accept` | Take a case that is offered to this hospital |
+| `POST` | `/me/cases/{alert_id}/decline` | Pass, which starts the next escalation stage |
+| `POST` | `/me/cases/{alert_id}/advance` | Move to the next legal lifecycle state |
+| `POST` | `/me/cases/{alert_id}/cancel` | Cancel a case this hospital holds |
+| `GET`  | `/me/hospital` | This hospital's profile and capacity |
+| `GET`  | `/me/beds` | Beds total, occupied, and free |
+| `PATCH` | `/me/beds` | Set bed capacity — **admin only** |
+| `GET`  | `/me/fleet` | Ambulances with live positions |
+| `PATCH` | `/me/fleet` | Resize the fleet — **admin only** |
+| `GET`  | `/geo/search` | Place search for the registration and case forms |
 | `GET`  | `/health` | Liveness |
-| `WS`   | `/stream` | Real-time events (alias `/ws`) |
+| `WS`   | `/stream` | Real-time events, token in the query string |
+
+Role summary: `admin` manages the team and capacity, `dispatcher` acts on cases, `viewer` is
+read-only. The service enforces this on every write; the console hides what a role cannot do.
 
 ### data-analytics/service (port 8001)
 
@@ -64,50 +82,97 @@ lifecycle and now emits `incident_detected`, `incident_status`, `fleet_update`, 
 Each part is built independently and the shared contract is agreed at integration. These are the
 shapes the hospital service currently accepts and emits.
 
-### Input — `POST /incidents`
+### Input — `POST /cases`
+
+Only `location` is required. The service generates `alert_id` and works out eligibility, so the
+upstream model does not choose a hospital.
 
 ```json
 {
   "trip_id": "trip-0001",
   "severity": 8.5,
+  "severity_source": "ai",
+  "severity_confidence": 0.97,
+  "severity_summary": "Frontal impact, one patient trapped.",
   "location": { "lat": 30.043, "lon": 31.244 },
-  "medical_profile_ref": "profile-0001",
+  "location_label": "Ring Road, north entrance",
+  "occurred_at": "2026-09-29T06:40:00",
   "detection": { "rule": true, "ml_confidence": 0.97 },
-  "impact_factors": { "peak_g": 9.1, "delta_v_mps": 13.4, "impact_type": "frontal" }
+  "impact_factors": { "impact_type": "frontal", "peak_g": 9.1, "delta_v_mps": 13.4 },
+  "patient": { "name": "Yasmin Fouad", "age": 47, "blood_type": "AB-", "sex": "female",
+               "conditions": ["Asthma"], "medications": ["Salbutamol"],
+               "allergies": ["Latex"], "notes": "Airway being managed." }
 }
 ```
 
-Only `severity` and `location` are required; everything else is optional and echoed back on the
-incident record.
+### Output — `GET /me/cases`
 
-### Output — `GET /incidents/{alert_id}`
+Three lists, because a case is offered before it is accepted.
+
+```json
+{
+  "offers": [
+    { "offer_id": 12, "alert_id": "alert-27c72f79", "stage": 1, "broadcast": false,
+      "status": "pending", "offered_at": "...", "expires_at": "...",
+      "distance_m": 176.4, "eta_seconds": 46,
+      "incident": { "...": "full incident, no events" } }
+  ],
+  "assigned": [ { "...": "incident with events" } ],
+  "recent":   [ { "...": "up to 20 finished cases" } ]
+}
+```
+
+An offer is only visible to the hospital it was made to, and only while it is `pending` and
+unexpired. `stage` counts the escalation attempt; `broadcast` is true once the case is open to every
+eligible hospital.
+
+### Output — `GET /me/cases/{alert_id}`
 
 ```json
 {
   "alert_id": "alert-27c72f79",
-  "trip_id": "trip-0001",
-  "severity": 8.5,
   "status": "en_route_to_hospital",
+  "status_step": 5,
   "destination": "trauma_centre",
-  "assignment": { "hospital_id": "hosp-01", "ambulance_ids": ["amb-021", "amb-022"] },
-  "eta_scene_seconds": 73,
-  "eta_hospital_seconds": 160,
-  "impact_factors": { "peak_g": 9.1, "delta_v_mps": 13.4 },
-  "created_at": "2026-09-28T21:55:02.113000",
-  "closed_at": null,
-  "events": [
-    { "status": "detected", "note": "crash detected", "at_scene": false, "created_at": "..." }
-  ]
+  "patient": { "name": "Yasmin Fouad", "age": 47, "blood_type": "AB-", "conditions": [] },
+  "location": { "lat": 30.043, "lon": 31.244, "label": "Ring Road, north entrance",
+                "maps_url": "https://www.google.com/maps/search/?api=1&query=...",
+                "directions_url": "https://www.google.com/maps/dir/?api=1&destination=..." },
+  "distance_m": 176.4,
+  "assignment": { "accepted": true, "accepted_at": "...", "accepted_by": "riverside@demo.hospital",
+                  "ambulance_ids": ["amb-021"] },
+  "share_text": "Yasmin Fouad, 47, AB- — Ring Road, north entrance",
+  "events": [ { "status": "detected", "note": "case received", "created_at": "..." } ]
 }
 ```
 
+`status_step` is the index in the lifecycle, which is what the console's progress rail renders;
+`share_text` is pre-formatted so a dispatcher can hand a colleague the case in one tap.
+
 ### Output — WebSocket `/stream`
 
+Connect with `?token=…`. Events are only delivered to hospitals that can see the case.
+
 ```json
-{ "type": "incident_status", "alert_id": "alert-...", "status": "on_scene", "note": "paramedics on scene", "at": "..." }
-{ "type": "fleet_update", "alert_id": "alert-...", "status": "en_route_to_scene", "ambulances": [{ "ambulance_id": "amb-021", "lat": 30.04, "lon": 31.24, "status": "en_route" }] }
-{ "type": "hospitals_update", "hospitals": [{ "hospital_id": "hosp-01", "current_load": 2, "free_beds": 10 }] }
+{ "type": "case_opened",    "alert_id": "alert-...", "incident": { }, "at": "..." }
+{ "type": "case_escalated", "alert_id": "alert-...", "incident": { }, "at": "..." }
+{ "type": "case_unclaimed", "alert_id": "alert-...", "at": "..." }
+{ "type": "case_status",    "alert_id": "alert-...", "incident": { }, "at": "..." }
+{ "type": "offer_expired",  "alert_id": "alert-...", "at": "..." }
+{ "type": "fleet_update",   "alert_id": "alert-...", "ambulances": [ ] }
+{ "type": "capacity_changed", "beds_total": 14, "beds_occupied": 3, "at": "..." }
 ```
+
+A reconnect re-syncs from `GET /me/cases`, so a client that misses an event still converges. The
+console also polls as a baseline, which keeps it correct even with the socket down.
 
 Lifecycle values: `detected`, `contacts_notified`, `ambulance_assigned`, `en_route_to_scene`,
 `on_scene`, `en_route_to_hospital`, `at_hospital`, `closed`, `cancelled`.
+
+## Hospital eligibility
+
+A case is offered to the nearest hospital that can take it: trauma level sufficient for the case,
+a free bed, and at least one spare ambulance. If nobody accepts before the offer window expires, the
+next stage widens the candidate set until the case is broadcast to all eligible hospitals. An
+incident that no hospital ever accepted keeps `hospital_id` null, which is the correct end state
+rather than lost data.
