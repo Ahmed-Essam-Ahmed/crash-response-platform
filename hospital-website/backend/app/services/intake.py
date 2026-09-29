@@ -43,9 +43,30 @@ async def _advance(db, incident, status, note=None, at_scene=False, announce=Tru
     return incident
 
 
+def build_contacts(db, incident, payload: dict) -> list[models.EmergencyContact]:
+    rows = payload.get("emergency_contacts") or payload.get("contacts") or []
+    contacts = []
+    for index, entry in enumerate(rows):
+        if not isinstance(entry, dict):
+            continue
+        contacts.append(
+            models.EmergencyContact(
+                incident_id=incident.id,
+                full_name=entry.get("name") or entry.get("full_name"),
+                relation=entry.get("relation") or entry.get("relationship"),
+                phone=entry.get("phone") or entry.get("phone_number") or entry.get("mobile"),
+                email=entry.get("email"),
+                is_primary=bool(entry.get("primary") or entry.get("is_primary")),
+                position=index,
+            )
+        )
+    db.add_all(contacts)
+    return contacts
+
+
 async def create_case(db, payload: dict) -> models.Incident:
     location = payload.get("location") or {}
-    severity = float(payload.get("severity") or 0.0)
+    severity = max(1.0, min(10.0, float(payload.get("severity") or 1.0)))
     trip_id = payload.get("trip_id") or f"trip-{uuid.uuid4().hex[:8]}"
     destination = triage.destination_for(severity)
 
@@ -65,6 +86,7 @@ async def create_case(db, payload: dict) -> models.Incident:
         severity_source=payload.get("severity_source") or "ai",
         severity_confidence=payload.get("severity_confidence"),
         severity_summary=payload.get("severity_summary") or payload.get("ai_summary"),
+        mechanism=payload.get("mechanism") or (payload.get("impact_factors") or {}).get("mechanism"),
         lat=float(location.get("lat", 30.04)),
         lon=float(location.get("lon", 31.24)),
         location_label=payload.get("location_label") or location.get("label") or location.get("address"),
@@ -79,6 +101,7 @@ async def create_case(db, payload: dict) -> models.Incident:
     db.add(incident)
     db.commit()
     db.refresh(incident)
+    build_contacts(db, incident, payload)
     db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note="case received"))
     db.commit()
 

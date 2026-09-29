@@ -124,6 +124,22 @@ class PatientProfile(Base):
     incidents = relationship("Incident", back_populates="patient")
 
 
+class EmergencyContact(Base):
+    __tablename__ = "emergency_contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id"), index=True)
+    full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    relation: Mapped[str | None] = mapped_column(String, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    incident = relationship("Incident", back_populates="contacts")
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 
@@ -134,6 +150,7 @@ class Incident(Base):
     severity_source: Mapped[str] = mapped_column(String, default="ai")
     severity_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     severity_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mechanism: Mapped[str | None] = mapped_column(Text, nullable=True)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     location_label: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -159,6 +176,12 @@ class Incident(Base):
     hospital = relationship("Hospital", back_populates="incidents")
     patient = relationship("PatientProfile", back_populates="incidents")
     offers = relationship("CaseOffer", back_populates="incident", cascade="all, delete-orphan")
+    contacts = relationship(
+        "EmergencyContact",
+        back_populates="incident",
+        cascade="all, delete-orphan",
+        order_by="EmergencyContact.position",
+    )
 
     @property
     def is_active(self) -> bool:

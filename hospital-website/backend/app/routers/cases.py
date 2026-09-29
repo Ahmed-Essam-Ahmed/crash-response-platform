@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .. import models, serializers
@@ -8,6 +8,22 @@ from ..deps import ingest_key
 from ..services import intake
 
 router = APIRouter(prefix="/cases", tags=["cases"])
+
+SEVERITY_MIN = 1.0
+SEVERITY_MAX = 10.0
+
+
+class EmergencyContactPayload(BaseModel):
+    name: str | None = None
+    full_name: str | None = None
+    relation: str | None = None
+    relationship: str | None = None
+    phone: str | None = None
+    phone_number: str | None = None
+    mobile: str | None = None
+    email: str | None = None
+    primary: bool = False
+    is_primary: bool = False
 
 
 class PatientPayload(BaseModel):
@@ -23,16 +39,23 @@ class PatientPayload(BaseModel):
 
 class CasePayload(BaseModel):
     trip_id: str | None = None
-    severity: float = Field(default=0.0, ge=0, le=20)
+    severity: float = 5.0
     severity_source: str | None = None
     severity_confidence: float | None = Field(default=None, ge=0, le=1)
     severity_summary: str | None = None
+    mechanism: str | None = None
     location: dict
     location_label: str | None = None
     occurred_at: str | None = None
     patient: PatientPayload | None = None
+    emergency_contacts: list[EmergencyContactPayload] | None = None
     detection: dict | None = None
     impact_factors: dict | None = None
+
+    @field_validator("severity")
+    @classmethod
+    def _clamp_severity(cls, value: float) -> float:
+        return max(SEVERITY_MIN, min(SEVERITY_MAX, float(value)))
 
 
 @router.post("", status_code=201, dependencies=[Depends(ingest_key)])

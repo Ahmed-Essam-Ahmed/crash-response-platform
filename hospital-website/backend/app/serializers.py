@@ -23,6 +23,16 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
+def contact_to_dict(contact) -> dict:
+    return {
+        "name": contact.full_name,
+        "relation": contact.relation,
+        "phone": contact.phone,
+        "email": contact.email,
+        "primary": bool(contact.is_primary),
+    }
+
+
 def event_to_dict(event) -> dict:
     return {
         "status": event.status,
@@ -129,6 +139,9 @@ def incident_to_dict(incident, include_events: bool = True, hospital=None) -> di
         "severity_summary": incident.severity_summary,
         "status": incident.status,
         "status_step": lifecycle.step_index(incident.status),
+        "mechanism": incident.mechanism,
+        "emergency_contacts": [contact_to_dict(c) for c in incident.contacts],
+        "impact": _load(incident.impact_factors) or {},
         "destination": incident.destination,
         "patient": patient_to_dict(incident.patient),
         "location": {

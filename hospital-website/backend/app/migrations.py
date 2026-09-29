@@ -29,6 +29,7 @@ INCIDENT_COLUMNS = {
     "severity_source": "VARCHAR NOT NULL DEFAULT 'ai'",
     "severity_confidence": "FLOAT",
     "severity_summary": "TEXT",
+    "mechanism": "TEXT",
     "location_label": "VARCHAR",
     "occurred_at": "DATETIME",
     "patient_id": "INTEGER",
