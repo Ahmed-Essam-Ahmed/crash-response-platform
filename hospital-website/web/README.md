@@ -178,6 +178,10 @@ map draws, so the pin and the route never disagree.
 The route is drawn as the part still ahead of the ambulance. As it drives, the line behind it is
 dropped, so what you see is what is left to travel rather than a road it has already covered. The
 line switches to the return leg, trimmed the same way, once the crew starts transporting.
+A line is only drawn while there is road left to cover, and the crash pin is dropped once the
+crew reaches the patient, because the site stops being somewhere a dispatcher needs to watch.
+Picking that case from the list then centres on the ambulance instead, which is carrying the
+patient. The case card still has the address.
 
 The map fits every layer once on first load and then leaves the view alone, because a dispatcher
 panning to a case should not have the viewport yanked back by the next position update. Selecting a

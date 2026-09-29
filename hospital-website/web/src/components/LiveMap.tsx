@@ -100,6 +100,24 @@ function routeShape(
   };
 }
 
+// Once the crew is standing at the crash the patient is being put in the
+// ambulance, and the crash site stops being somewhere a dispatcher needs to
+// look at. The case card still carries the address.
+function showsCrashPin(status: string) {
+  return status !== 'on_scene' && status !== 'en_route_to_hospital' && status !== 'at_hospital';
+}
+
+// Drawn only while there is road left to cover: out to the crash, then back
+// from the crash to the hospital. On scene the crew is standing at the end of
+// the outward leg, and at the hospital the inward one is finished.
+function showsRouteLine(status: string) {
+  return (
+    status === 'ambulance_assigned' ||
+    status === 'en_route_to_scene' ||
+    status === 'en_route_to_hospital'
+  );
+}
+
 function pin(color: string, glyph: string, ring: string) {
   return L.divIcon({
     className: 'live-pin',
@@ -193,6 +211,7 @@ export function LiveMap({
     fleet: Map<string, L.Marker>;
   } | null>(null);
   const fitted = useRef(false);
+  const crewPositions = useRef(new Map<string, LatLng>());
 
   useEffect(() => {
     if (!holder.current || map.current) return;
@@ -233,16 +252,26 @@ export function LiveMap({
     if (!instance || !store) return;
 
     const live = incidents.filter((i) => i.status !== 'closed' && i.status !== 'cancelled');
-    const liveIds = new Set(live.map((i) => i.alert_id));
+    const pinnedIds = new Set(live.filter((i) => showsCrashPin(i.status)).map((i) => i.alert_id));
+    const routedIds = new Set(live.filter((i) => showsRouteLine(i.status)).map((i) => i.alert_id));
+
+    const crewByIncident = new Map<string, LatLng>();
+    for (const incident of live) {
+      for (const id of incident.assignment.ambulance_ids) {
+        const unit = ambulances.find((a) => a.ambulance_id === id);
+        if (unit) crewByIncident.set(incident.alert_id, [unit.lat, unit.lon]);
+      }
+    }
+    crewPositions.current = crewByIncident;
 
     for (const [alertId, marker] of store.crashes) {
-      if (!liveIds.has(alertId)) {
+      if (!pinnedIds.has(alertId)) {
         marker.remove();
         store.crashes.delete(alertId);
       }
     }
     for (const [alertId, pair] of store.lines) {
-      if (!liveIds.has(alertId)) {
+      if (!routedIds.has(alertId)) {
         pair.casing.remove();
         pair.line.remove();
         store.lines.delete(alertId);
@@ -250,6 +279,7 @@ export function LiveMap({
     }
 
     for (const incident of live) {
+      if (!pinnedIds.has(incident.alert_id)) continue;
       const tone = toneForSeverity(incident.severity);
       const point: L.LatLngExpression = [incident.location.lat, incident.location.lon];
       const heading = incident.assignment.accepted
@@ -280,29 +310,30 @@ export function LiveMap({
             .on('click', () => onFocusCase?.(incident.alert_id)),
         );
       }
+    }
 
-      if (incident.assignment.accepted) {
-        const current = store.lines.get(incident.alert_id);
-        const crew = incident.assignment.ambulance_ids
-          .map((id) => ambulances.find((a) => a.ambulance_id === id))
-          .find((a): a is Ambulance => Boolean(a));
-        const shape = routeShape(
-          incident,
-          [hospital.lat, hospital.lon],
-          [incident.location.lat, incident.location.lon],
-          crew ? [crew.lat, crew.lon] : null,
-        );
-        if (current) {
-          current.casing.setLatLngs(shape.line);
-          current.casing.setStyle(shape.casing);
-          current.line.setLatLngs(shape.line);
-          current.line.setStyle(shape.style);
-        } else {
-          const casing = L.polyline(shape.line, shape.casing).addTo(instance);
-          const line = L.polyline(shape.line, shape.style).addTo(instance);
-          casing.bringToBack();
-          store.lines.set(incident.alert_id, { casing, line });
-        }
+    for (const incident of live) {
+      if (!incident.assignment.accepted || !routedIds.has(incident.alert_id)) continue;
+      const current = store.lines.get(incident.alert_id);
+      const unit = incident.assignment.ambulance_ids
+        .map((id) => ambulances.find((a) => a.ambulance_id === id))
+        .find((a): a is Ambulance => Boolean(a));
+      const shape = routeShape(
+        incident,
+        [hospital.lat, hospital.lon],
+        [incident.location.lat, incident.location.lon],
+        unit ? [unit.lat, unit.lon] : null,
+      );
+      if (current) {
+        current.casing.setLatLngs(shape.line);
+        current.casing.setStyle(shape.casing);
+        current.line.setLatLngs(shape.line);
+        current.line.setStyle(shape.style);
+      } else {
+        const casing = L.polyline(shape.line, shape.casing).addTo(instance);
+        const line = L.polyline(shape.line, shape.style).addTo(instance);
+        casing.bringToBack();
+        store.lines.set(incident.alert_id, { casing, line });
       }
     }
 
@@ -350,7 +381,12 @@ export function LiveMap({
     if (target) {
       instance.flyTo(target.getLatLng(), Math.max(instance.getZoom(), 15), { duration: 0.6 });
       target.openPopup();
+      return;
     }
+    // Once the crash pin is gone the interesting place is the crew carrying
+    // the patient, so selecting the case lands on the ambulance instead.
+    const unit = crewPositions.current.get(focus);
+    if (unit) instance.flyTo(unit, Math.max(instance.getZoom(), 15), { duration: 0.6 });
   }, [focus]);
 
   return (
