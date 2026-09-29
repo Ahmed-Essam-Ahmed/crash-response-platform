@@ -33,13 +33,23 @@
 
 - **Crash detection** — peak g-force and delta-V thresholds, ML veto for near-misses
   (hard braking, sharp turns, potholes).
-- **Severity (0–10)** — weighted model over impact g-force, delta-V, impact type, speed at impact,
-  post-crash inactivity, and medical context.
+- **Severity (1–10)** — weighted model over impact g-force, delta-V, impact type, speed at impact,
+  post-crash inactivity, and medical context. The intake boundary clamps whatever the model sends
+  into 1–10, so an upstream 0–20 score is stored as-is rather than rejected.
 - **Dispatch** — shortest-path routing over a simulated road graph.
 - **Case escalation** — a hospital is eligible when its trauma level covers the case, it has a free
   bed, and it has a spare ambulance. The nearest eligible hospital is offered the case first; each
   expiry widens the candidate set, and after three stages the case is broadcast to every eligible
   hospital at once. Accepting a case assigns it; declining starts the next stage immediately.
+- **Ambulance motion** — the progression loop advances an assigned ambulance along the
+  hospital↔crash↔hospital route every half second by interpolating between the two endpoints for its
+  current phase, then broadcasts the whole fleet as a `fleet_update` event. Positions are never
+  stored per tick, so a reconnecting console gets the current state from the first event it sees.
+- **Console map** — Leaflet with CARTO raster tiles over OpenStreetMap, chosen so there is no API
+  key to provision. Markers, route polylines, and the basemap swap are all created and updated
+  imperatively inside one `LiveMap` component, which is the only file that knows a map library is
+  involved.
+
 - **Analytics** — grid/DBSCAN hotspot aggregation for red zones; time-bucket analysis; severity
   distribution.
 

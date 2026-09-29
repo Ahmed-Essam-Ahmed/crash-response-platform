@@ -94,6 +94,7 @@ upstream model does not choose a hospital.
   "severity_source": "ai",
   "severity_confidence": 0.97,
   "severity_summary": "Frontal impact, one patient trapped.",
+  "mechanism": "Head-on collision at a junction. The driver was behind the wheel and trapped by the legs.",
   "location": { "lat": 30.043, "lon": 31.244 },
   "location_label": "Ring Road, north entrance",
   "occurred_at": "2026-09-29T06:40:00",
@@ -101,9 +102,23 @@ upstream model does not choose a hospital.
   "impact_factors": { "impact_type": "frontal", "peak_g": 9.1, "delta_v_mps": 13.4 },
   "patient": { "name": "Yasmin Fouad", "age": 47, "blood_type": "AB-", "sex": "female",
                "conditions": ["Asthma"], "medications": ["Salbutamol"],
-               "allergies": ["Latex"], "notes": "Airway being managed." }
+               "allergies": ["Latex"], "notes": "Airway being managed." },
+  "emergency_contacts": [
+    { "name": "Hala Fouad", "relation": "sister", "phone": "+201000000001",
+      "email": "hala@example.com", "primary": true },
+    { "name": "Karim Fouad", "relation": "brother", "phone": "+201000000002" }
+  ]
 }
 ```
+
+`severity` is the clinical 1–10 scale, so the upstream model can send its raw 0–20 score unchanged
+and the service clamps it into range; anything outside 1–10 is pulled to the nearest bound rather
+than rejected. `mechanism` is the plain-language answer to "how did it happen", which is what a
+clinician reads first. It falls back to `impact_factors.mechanism` when absent.
+
+Each contact accepts `full_name`/`name` and `relation`/`relationship`, `phone`/`phone_number`/`mobile`,
+and `primary`/`is_primary`, so an app does not have to match one spelling. Contacts keep the order
+they were sent in, and the first entry is treated as the main one to call.
 
 ### Output — `GET /me/cases`
 
@@ -133,6 +148,13 @@ eligible hospital.
   "alert_id": "alert-27c72f79",
   "status": "en_route_to_hospital",
   "status_step": 5,
+  "severity": 8.5,
+  "mechanism": "Head-on collision at a junction. The driver was behind the wheel and trapped by the legs.",
+  "emergency_contacts": [
+    { "name": "Hala Fouad", "relation": "sister", "phone": "+201000000001",
+      "email": "hala@example.com", "primary": true }
+  ],
+  "impact": { "impact_type": "frontal", "peak_g": 9.1, "delta_v_mps": 13.4 },
   "destination": "trauma_centre",
   "patient": { "name": "Yasmin Fouad", "age": 47, "blood_type": "AB-", "conditions": [] },
   "location": { "lat": 30.043, "lon": 31.244, "label": "Ring Road, north entrance",
@@ -148,6 +170,9 @@ eligible hospital.
 
 `status_step` is the index in the lifecycle, which is what the console's progress rail renders;
 `share_text` is pre-formatted so a dispatcher can hand a colleague the case in one tap.
+`mechanism`, `emergency_contacts`, and `impact` are echoed on every incident shape, so the console
+renders "how it happened", who to call, and what the sensors recorded without a second request.
+`impact` is the stored `impact_factors` decoded into an object; it is `{}` when none were sent.
 
 ### Output — WebSocket `/stream`
 
