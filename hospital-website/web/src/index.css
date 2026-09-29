@@ -257,6 +257,37 @@
   .fx:hover::after {
     opacity: 1;
   }
+
+  .live-map .leaflet-tile-pane {
+    transition: filter 0.2s linear;
+  }
+
+  .dark .live-map .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(1.05) saturate(0.55);
+  }
+
+  .live-map .leaflet-container {
+    background: var(--surface-2);
+  }
+
+  .live-map .leaflet-popup-content-wrapper,
+  .live-map .leaflet-popup-tip {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .live-map .leaflet-popup-content-wrapper {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .dark .live-map .leaflet-control-attribution {
+    background: rgb(0 0 0 / 45%);
+    color: var(--muted);
+  }
+
+  .dark .live-map .leaflet-control-attribution a {
+    color: var(--ink-soft);
+  }
 }
 
 .aurora {

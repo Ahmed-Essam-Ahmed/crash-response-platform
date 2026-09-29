@@ -3,21 +3,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { toneForSeverity } from '../lib/status';
 import type { Tone } from '../lib/status';
-import { useTheme } from '../theme';
 import type { Ambulance, Hospital, Incident } from '../types';
 
-const TILES: Record<'light' | 'dark', { url: string; attribution: string }> = {
-  light: {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  },
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  },
-};
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 const SEVERITY: Record<Tone, string> = {
   critical: '#c0392b',
@@ -82,7 +72,6 @@ export function LiveMap({
     fleet: Map<string, L.Marker>;
   } | null>(null);
   const fitted = useRef(false);
-  const { mode } = useTheme();
 
   useEffect(() => {
     if (!holder.current || map.current) return;
@@ -92,7 +81,7 @@ export function LiveMap({
     }).setView([hospital.lat, hospital.lon], 13);
 
     L.control.zoom({ position: 'bottomright' }).addTo(instance);
-    L.tileLayer(TILES.light.url, { attribution: TILES.light.attribution, maxZoom: 19 }).addTo(instance);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(instance);
 
     const anchor = L.marker([hospital.lat, hospital.lon], {
       icon: HOSPITAL_ICON,
@@ -116,13 +105,6 @@ export function LiveMap({
       fitted.current = false;
     };
   }, [hospital.lat, hospital.lon, hospital.name]);
-
-  useEffect(() => {
-    if (!map.current || !layers.current) return;
-    map.current.eachLayer((layer) => {
-      if (layer instanceof L.TileLayer) layer.setUrl(TILES[mode].url);
-    });
-  }, [mode]);
 
   useEffect(() => {
     const instance = map.current;
@@ -263,7 +245,7 @@ export function LiveMap({
           Live
         </span>
       </div>
-      <div ref={holder} className="h-[320px] w-full sm:h-[380px]" />
+      <div ref={holder} className="live-map h-[320px] w-full sm:h-[380px]" />
       <ul className="flex flex-wrap gap-x-4 gap-y-1.5 px-5 py-3 text-2xs text-muted">
         <li className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-full bg-[#0f766e]" /> Your hospital

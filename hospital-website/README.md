@@ -55,6 +55,10 @@ the ambulance moving on the map towards that crash.
 
 ## Tests
 
+`python scripts/check_basemap.py` is kept out of the suite on purpose, because it needs the
+network. It confirms the basemap is still serving a map rather than a placeholder.
+
+
 ```bash
 cd backend
 python -m unittest discover -s tests -t .

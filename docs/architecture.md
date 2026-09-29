@@ -45,10 +45,13 @@
   hospital↔crash↔hospital route every half second by interpolating between the two endpoints for its
   current phase, then broadcasts the whole fleet as a `fleet_update` event. Positions are never
   stored per tick, so a reconnecting console gets the current state from the first event it sees.
-- **Console map** — Leaflet with CARTO raster tiles over OpenStreetMap, chosen so there is no API
-  key to provision. Markers, route polylines, and the basemap swap are all created and updated
-  imperatively inside one `LiveMap` component, which is the only file that knows a map library is
-  involved.
+- **Console map** — Leaflet with the standard OpenStreetMap raster tiles, chosen so there is no API
+  key to provision. Dark mode re-tunes those tiles with a CSS filter instead of relying on a
+  separate dark basemap, which keeps the map to a single provider. Markers, route polylines, and
+  tile updates are all created and updated imperatively inside one `LiveMap` component, which is
+  the only file that knows a map library is involved. Tile choice is not covered by the test suite
+  because it needs the network; `scripts/check_basemap.py` verifies the pixels instead, since a
+  key-gated tile server keeps returning `200`.
 
 - **Analytics** — grid/DBSCAN hotspot aggregation for red zones; time-bucket analysis; severity
   distribution.

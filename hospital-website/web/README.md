@@ -156,8 +156,10 @@ src/
 
 ## The live map
 
-`LiveMap` is a real slippy map, not a schematic. It uses Leaflet directly with CARTO raster tiles
-over OpenStreetMap data, so there is no API key, no billing, and no quota to run out during a demo.
+`LiveMap` is a real slippy map, not a schematic. It uses Leaflet directly with the standard
+OpenStreetMap raster tiles, so there is no API key, no billing, and no quota to run out during a
+demo. Dark mode does not use a second basemap; it inverts and re-tunes the same tiles with a CSS
+filter, so a second provider can never half-work.
 
 It draws four things: this hospital as a fixed `H` pin, every live case as a `!` pin coloured by
 severity tone, every in-service ambulance as an `A` pin that turns red and gains a `+` while it is
@@ -169,6 +171,18 @@ The map fits every layer once on first load and then leaves the view alone, beca
 panning to a case should not have the viewport yanked back by the next position update. Selecting a
 case flies to its pin instead.
 
-Two details worth keeping: tiles swap between the light and dark basemaps when the theme changes,
-and the whole map is confined to `LiveMap` so swapping in a paid provider later touches one file.
+The whole map is confined to `LiveMap` so swapping in a paid provider later touches one file.
+
+**Check the basemap is still a map.** A tile server that starts requiring a key does not fail
+loudly: it answers `200` with a small placeholder image, and every request looks healthy.
+
+```bash
+cd backend
+python scripts/check_basemap.py
+```
+
+It reads the pixels rather than trusting the status code. A placeholder is one flat colour with a
+little text in it; a real tile is hundreds of colours. This check exists because the map was
+originally pointed at CARTO, which passed every status-code check while showing nothing but
+"API key required" on the map.
 
