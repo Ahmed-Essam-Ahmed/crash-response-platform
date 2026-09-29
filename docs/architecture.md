@@ -36,15 +36,22 @@
 - **Severity (1–10)** — weighted model over impact g-force, delta-V, impact type, speed at impact,
   post-crash inactivity, and medical context. The intake boundary clamps whatever the model sends
   into 1–10, so an upstream 0–20 score is stored as-is rather than rejected.
-- **Dispatch** — shortest-path routing over a simulated road graph.
+- **Road routing** — there is no road graph of our own. When a hospital accepts a case, the
+  service asks OSRM (keyless, `router.project-osrm.org`) for the driving path from the hospital to
+  the crash and back, and stores both legs on the incident. The two legs are fetched separately
+  rather than reversed, because one-way streets mean the way back is not the way there. Progress
+  along a leg is measured by distance, not by index, so the ambulance covers corners at a sensible
+  speed instead of speeding up between them. If the router is unreachable, enabled off, or returns
+  something that is not a route, the service falls back to the straight line — a case must never be
+  undispatchable because a map server is down. Routes are cached in process by rounded coordinates.
 - **Case escalation** — a hospital is eligible when its trauma level covers the case, it has a free
   bed, and it has a spare ambulance. The nearest eligible hospital is offered the case first; each
   expiry widens the candidate set, and after three stages the case is broadcast to every eligible
   hospital at once. Accepting a case assigns it; declining starts the next stage immediately.
-- **Ambulance motion** — the progression loop advances an assigned ambulance along the
-  hospital↔crash↔hospital route every half second by interpolating between the two endpoints for its
-  current phase, then broadcasts the whole fleet as a `fleet_update` event. Positions are never
-  stored per tick, so a reconnecting console gets the current state from the first event it sees.
+- **Ambulance motion** — the progression loop advances an assigned ambulance along its stored road
+  route every half second, interpolating by distance along the polyline for its current phase, then
+  broadcasts the whole fleet as a `fleet_update` event. Positions are never stored per tick, so a
+  reconnecting console gets the current state from the first event it sees.
 - **Console map** — Leaflet with the standard OpenStreetMap raster tiles, chosen so there is no API
   key to provision. Dark mode re-tunes those tiles with a CSS filter instead of relying on a
   separate dark basemap, which keeps the map to a single provider. Markers, route polylines, and

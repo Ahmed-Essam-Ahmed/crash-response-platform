@@ -28,4 +28,8 @@ INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "dev-ingest-key-change-me")
 NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
 NOMINATIM_TIMEOUT = float(os.environ.get("NOMINATIM_TIMEOUT", "6"))
 
+ROAD_ROUTER_URL = os.environ.get("ROAD_ROUTER_URL", "https://router.project-osrm.org/route/v1/driving")
+ROAD_ROUTER_TIMEOUT = float(os.environ.get("ROAD_ROUTER_TIMEOUT", "5"))
+ROAD_ROUTER_ENABLED = os.environ.get("ROAD_ROUTER_ENABLED", "on") == "on"
+
 SEED_DEMO_LOGIN = os.environ.get("SEED_DEMO_LOGIN", "1") == "1"

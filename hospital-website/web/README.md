@@ -163,9 +163,17 @@ filter, so a second provider can never half-work.
 
 It draws four things: this hospital as a fixed `H` pin, every live case as a `!` pin coloured by
 severity tone, every in-service ambulance as an `A` pin that turns red and gains a `+` while it is
-moving, and a dashed line between the hospital and the crash for each case the hospital has taken.
+moving, and the real driving route for each case the hospital has taken.
+
+That route geometry comes from the backend as `route.outbound` and `route.inbound`; the console never
+asks a routing service itself. Polylines are drawn with `smoothFactor: 0`, because Leaflet's default
+simplification is what turns a street-for-street route back into something that looks like a straight
+line. The outbound leg is dashed while the ambulance is heading to the scene and the inbound leg
+draws solid once the patient is on board, so the current direction of travel is readable at a glance.
+
 Ambulance positions come from the `fleet_update` stream event, which the backend emits every half
-second, so the pins move on their own without polling.
+second, so the pins move on their own without polling. The ambulance follows the same polyline the
+map draws, so the pin and the route never disagree.
 
 The map fits every layer once on first load and then leaves the view alone, because a dispatcher
 panning to a case should not have the viewport yanked back by the next position update. Selecting a

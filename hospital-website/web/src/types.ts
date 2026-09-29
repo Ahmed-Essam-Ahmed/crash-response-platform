@@ -37,6 +37,11 @@ export interface EmergencyContact {
   primary: boolean;
 }
 
+export interface CaseRoute {
+  outbound: { lat: number; lon: number }[];
+  inbound: { lat: number; lon: number }[];
+}
+
 export interface CaseLocation {
   lat: number;
   lon: number;
@@ -62,6 +67,7 @@ export interface Incident {
   mechanism: string | null;
   emergency_contacts: EmergencyContact[];
   impact: Record<string, unknown>;
+  route: CaseRoute;
   status: IncidentStatus;
   status_step: number;
   destination: string;

@@ -30,6 +30,8 @@ INCIDENT_COLUMNS = {
     "severity_confidence": "FLOAT",
     "severity_summary": "TEXT",
     "mechanism": "TEXT",
+    "route_outbound": "TEXT",
+    "route_inbound": "TEXT",
     "location_label": "VARCHAR",
     "occurred_at": "DATETIME",
     "patient_id": "INTEGER",

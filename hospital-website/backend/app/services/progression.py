@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 
 from .. import models, serializers
@@ -62,6 +63,19 @@ def _next_for(incident):
     return None
 
 
+def _stored_route(incident, field: str) -> list:
+    raw = getattr(incident, field, None)
+    if not raw:
+        return []
+    try:
+        points = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(points, list) or len(points) < 2:
+        return []
+    return points
+
+
 def _move_ambulances(incident) -> None:
     status = lifecycle.Status(incident.status)
     event = _last_event(incident)
@@ -70,11 +84,16 @@ def _move_ambulances(incident) -> None:
     if status is lifecycle.Status.EN_ROUTE_TO_SCENE:
         span = max(1.0, _scaled(incident.eta_scene_seconds or 1))
         progress = min(1.0, elapsed / span)
+        path = _stored_route(incident, "route_outbound")
         for amb in incident.ambulances:
-            origin = amb.hospital
-            if origin is None:
+            if amb.hospital is None:
                 continue
-            pos = geo.interpolate(origin.lat, origin.lon, incident.lat, incident.lon, progress)
+            if path:
+                pos = geo.position_along(path, progress)
+            else:
+                pos = geo.interpolate(
+                    amb.hospital.lat, amb.hospital.lon, incident.lat, incident.lon, progress
+                )
             amb.lat, amb.lon = pos["lat"], pos["lon"]
             amb.status = "en_route"
 
@@ -89,8 +108,12 @@ def _move_ambulances(incident) -> None:
             return
         span = max(1.0, _scaled(incident.eta_hospital_seconds or 1))
         progress = min(1.0, elapsed / span)
+        path = _stored_route(incident, "route_inbound")
         for amb in incident.ambulances:
-            pos = geo.interpolate(incident.lat, incident.lon, hospital.lat, hospital.lon, progress)
+            if path:
+                pos = geo.position_along(path, progress)
+            else:
+                pos = geo.interpolate(incident.lat, incident.lon, hospital.lat, hospital.lon, progress)
             amb.lat, amb.lon = pos["lat"], pos["lon"]
             amb.status = "transporting"
 

@@ -155,6 +155,8 @@ eligible hospital.
       "email": "hala@example.com", "primary": true }
   ],
   "impact": { "impact_type": "frontal", "peak_g": 9.1, "delta_v_mps": 13.4 },
+  "route": { "outbound": [ { "lat": 30.04811, "lon": 31.23181 }, "...": "89 points" ],
+             "inbound":  [ { "lat": 30.06497, "lon": 31.24704 }, "...": "109 points" ] },
   "destination": "trauma_centre",
   "patient": { "name": "Yasmin Fouad", "age": 47, "blood_type": "AB-", "conditions": [] },
   "location": { "lat": 30.043, "lon": 31.244, "label": "Ring Road, north entrance",
@@ -173,6 +175,9 @@ eligible hospital.
 `mechanism`, `emergency_contacts`, and `impact` are echoed on every incident shape, so the console
 renders "how it happened", who to call, and what the sensors recorded without a second request.
 `impact` is the stored `impact_factors` decoded into an object; it is `{}` when none were sent.
+`route` holds the real driving path each way, filled in when the hospital accepts the case. The two
+legs are routed separately rather than reversed, so one-way streets are respected, and both are
+empty lists for a case nobody has taken yet.
 
 ### Output — WebSocket `/stream`
 

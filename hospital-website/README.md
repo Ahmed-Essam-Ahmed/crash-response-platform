@@ -58,6 +58,10 @@ the ambulance moving on the map towards that crash.
 `python scripts/check_basemap.py` is kept out of the suite on purpose, because it needs the
 network. It confirms the basemap is still serving a map rather than a placeholder.
 
+Road routing also uses the network, through the keyless OSRM demo server. It is reached only when
+a hospital accepts a case, cached by coordinates, and falls back to a straight line whenever the
+router cannot be reached, so an outage there never stops a case from being dispatched.
+
 
 ```bash
 cd backend

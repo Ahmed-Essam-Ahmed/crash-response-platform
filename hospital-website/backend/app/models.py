@@ -151,6 +151,8 @@ class Incident(Base):
     severity_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     severity_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     mechanism: Mapped[str | None] = mapped_column(Text, nullable=True)
+    route_outbound: Mapped[str | None] = mapped_column(Text, nullable=True)
+    route_inbound: Mapped[str | None] = mapped_column(Text, nullable=True)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
     location_label: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -12,6 +12,18 @@ def _load(raw):
         return None
 
 
+def route_to_dict(incident):
+    """Road geometry for the map, with the direction of travel kept separate.
+
+    The two legs are genuinely different paths, not one reversed, because a
+    one-way street means the way back is not the way there.
+    """
+    return {
+        "outbound": _load(incident.route_outbound) or [],
+        "inbound": _load(incident.route_inbound) or [],
+    }
+
+
 def _list(raw):
     value = _load(raw)
     if not value:
@@ -142,6 +154,7 @@ def incident_to_dict(incident, include_events: bool = True, hospital=None) -> di
         "mechanism": incident.mechanism,
         "emergency_contacts": [contact_to_dict(c) for c in incident.contacts],
         "impact": _load(incident.impact_factors) or {},
+        "route": route_to_dict(incident),
         "destination": incident.destination,
         "patient": patient_to_dict(incident.patient),
         "location": {

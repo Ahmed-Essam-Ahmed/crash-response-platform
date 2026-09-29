@@ -18,6 +18,44 @@ const SEVERITY: Record<Tone, string> = {
 
 const MOVING = new Set(['en_route', 'on_scene', 'transporting']);
 
+type LatLng = [number, number];
+
+function toPairs(points: { lat: number; lon: number }[] | undefined): LatLng[] {
+  if (!points || points.length < 2) return [];
+  return points.map((p) => [p.lat, p.lon] as LatLng);
+}
+
+function routeShape(
+  incident: Incident,
+  hospital: LatLng,
+  crash: LatLng,
+): { line: LatLng[]; style: L.PolylineOptions; casing: L.PolylineOptions } {
+  const color = SEVERITY[toneForSeverity(incident.severity)];
+  const outbound = toPairs(incident.route?.outbound);
+  const inbound = toPairs(incident.route?.inbound);
+  const returning = incident.status === 'en_route_to_hospital' || incident.status === 'at_hospital';
+
+  const line = returning
+    ? inbound.length
+      ? inbound
+      : [crash, hospital]
+    : outbound.length
+      ? outbound
+      : [hospital, crash];
+
+  // Leaflet simplifies a polyline before drawing it, which is what turns a real
+  // street-for-street route back into something that looks like a straight line.
+  const style: L.PolylineOptions = returning
+    ? { color, weight: 4, opacity: 0.9, smoothFactor: 0 }
+    : { color, weight: 4, opacity: 0.85, dashArray: '7 8', smoothFactor: 0 };
+
+  return {
+    line,
+    style,
+    casing: { color: '#0b1220', weight: 8, opacity: 0.35, lineCap: 'round', smoothFactor: 0 },
+  };
+}
+
 function pin(color: string, glyph: string, ring: string) {
   return L.divIcon({
     className: 'live-pin',
@@ -68,7 +106,7 @@ export function LiveMap({
   const layers = useRef<{
     hospital: L.Marker;
     crashes: Map<string, L.Marker>;
-    lines: Map<string, L.Polyline>;
+    lines: Map<string, { casing: L.Polyline; line: L.Polyline }>;
     fleet: Map<string, L.Marker>;
   } | null>(null);
   const fitted = useRef(false);
@@ -120,9 +158,10 @@ export function LiveMap({
         store.crashes.delete(alertId);
       }
     }
-    for (const [alertId, line] of store.lines) {
+    for (const [alertId, pair] of store.lines) {
       if (!liveIds.has(alertId)) {
-        line.remove();
+        pair.casing.remove();
+        pair.line.remove();
         store.lines.delete(alertId);
       }
     }
@@ -160,17 +199,18 @@ export function LiveMap({
       }
 
       if (incident.assignment.accepted) {
-        const line: L.LatLngExpression[] = [
-          [hospital.lat, hospital.lon],
-          point,
-        ];
         const current = store.lines.get(incident.alert_id);
-        const style = { color: SEVERITY[tone], weight: 3, opacity: 0.75, dashArray: '6 7' };
+        const shape = routeShape(incident, [hospital.lat, hospital.lon], [incident.location.lat, incident.location.lon]);
         if (current) {
-          current.setLatLngs(line);
-          current.setStyle(style);
+          current.casing.setLatLngs(shape.line);
+          current.casing.setStyle(shape.casing);
+          current.line.setLatLngs(shape.line);
+          current.line.setStyle(shape.style);
         } else {
-          store.lines.set(incident.alert_id, L.polyline(line, style).addTo(instance));
+          const casing = L.polyline(shape.line, shape.casing).addTo(instance);
+          const line = L.polyline(shape.line, shape.style).addTo(instance);
+          casing.bringToBack();
+          store.lines.set(incident.alert_id, { casing, line });
         }
       }
     }
@@ -206,7 +246,11 @@ export function LiveMap({
     }
 
     const bounds = L.latLngBounds([[hospital.lat, hospital.lon]]);
-    live.forEach((i) => bounds.extend([i.location.lat, i.location.lon]));
+    live.forEach((i) => {
+      bounds.extend([i.location.lat, i.location.lon]);
+      toPairs(i.route?.outbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
+      toPairs(i.route?.inbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
+    });
     ambulances
       .filter((a) => a.status !== 'out_of_service')
       .forEach((a) => bounds.extend([a.lat, a.lon]));

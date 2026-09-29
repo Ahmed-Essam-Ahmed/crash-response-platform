@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from datetime import datetime
@@ -5,7 +6,7 @@ from datetime import datetime
 from .. import models, serializers
 from ..domain import lifecycle, triage
 from ..realtime import realtime
-from . import dispatch, offers
+from . import dispatch, offers, routing
 
 PATIENT_FIELDS = ("full_name", "age", "blood_type", "gender", "conditions", "medications", "allergies", "notes")
 
@@ -122,9 +123,28 @@ async def create_case(db, payload: dict) -> models.Incident:
     return incident
 
 
+async def store_routes(db, incident, hospital) -> None:
+    """Record the drivable path both ways, so the map and the ambulance agree.
+
+    Only the network call is pushed off the event loop. The session stays on
+    this thread because a SQLAlchemy session is not thread-safe.
+    """
+    if hospital is None or (incident.route_outbound and incident.route_inbound):
+        return
+    h_lat, h_lon = hospital.lat, hospital.lon
+    c_lat, c_lon = incident.lat, incident.lon
+    legs = await asyncio.to_thread(routing.routes_for_incident, h_lat, h_lon, c_lat, c_lon)
+    incident.route_outbound = json.dumps(legs["outbound"])
+    incident.route_inbound = json.dumps(legs["inbound"])
+    db.add(incident)
+    db.commit()
+    db.refresh(incident)
+
+
 async def accept_case(db, incident, hospital, user):
     offers.accept(db, incident, hospital, user)
     db.refresh(incident)
+    await store_routes(db, incident, hospital)
     await _advance(
         db, incident,
         lifecycle.Status.AMBULANCE_ASSIGNED,
