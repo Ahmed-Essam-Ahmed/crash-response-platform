@@ -1,10 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { useEffect, useMemo, useRef } from 'react';
 import { toneForSeverity } from '../lib/status';
 import type { Tone } from '../lib/status';
 import type { Ambulance, Hospital, Incident } from '../types';
 
-const BOUNDS = { minLat: 30.0, maxLat: 30.12, minLon: 31.19, maxLon: 31.29 };
 const SEVERITY: Record<Tone, string> = {
   critical: 'var(--sev-critical)',
   serious: 'var(--sev-serious)',
@@ -17,16 +15,28 @@ function readVar(el: Element, name: string) {
 }
 
 export function MiniMap({
-  hospitals,
+  hospital,
   ambulances,
   incidents,
 }: {
-  hospitals: Hospital[];
+  hospital: Hospital;
   ambulances: Ambulance[];
   incidents: Incident[];
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
-  const reduce = useReducedMotion();
+
+  const points = useMemo(() => {
+    const list: { lat: number; lon: number }[] = [{ lat: hospital.lat, lon: hospital.lon }];
+    for (const incident of incidents) {
+      if (incident.status === 'closed' || incident.status === 'cancelled') continue;
+      list.push(incident.location);
+    }
+    for (const amb of ambulances) {
+      if (amb.status === 'out_of_service') continue;
+      list.push({ lat: amb.lat, lon: amb.lon });
+    }
+    return list;
+  }, [hospital, ambulances, incidents]);
 
   useEffect(() => {
     const el = canvas.current;
@@ -42,6 +52,19 @@ export function MiniMap({
     el.height = h * ratio;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
+    const lats = points.map((p) => p.lat);
+    const lons = points.map((p) => p.lon);
+    let minLat = Math.min(...lats);
+    let maxLat = Math.max(...lats);
+    let minLon = Math.min(...lons);
+    let maxLon = Math.max(...lons);
+    const padLat = Math.max((maxLat - minLat) * 0.25, 0.006);
+    const padLon = Math.max((maxLon - minLon) * 0.25, 0.006);
+    minLat -= padLat;
+    maxLat += padLat;
+    minLon -= padLon;
+    maxLon += padLon;
+
     const root = document.documentElement;
     const surface = readVar(root, '--surface');
     const line = readVar(root, '--line');
@@ -54,8 +77,8 @@ export function MiniMap({
       mild: readVar(root, '--sev-mild'),
     };
 
-    const px = (lon: number) => ((lon - BOUNDS.minLon) / (BOUNDS.maxLon - BOUNDS.minLon)) * w;
-    const py = (lat: number) => h - ((lat - BOUNDS.minLat) / (BOUNDS.maxLat - BOUNDS.minLat)) * h;
+    const px = (lon: number) => ((lon - minLon) / (maxLon - minLon)) * w;
+    const py = (lat: number) => h - ((lat - minLat) / (maxLat - minLat)) * h;
 
     ctx.fillStyle = surface;
     ctx.fillRect(0, 0, w, h);
@@ -73,17 +96,6 @@ export function MiniMap({
       ctx.stroke();
     }
 
-    ctx.strokeStyle = line;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 6]);
-    for (const hospital of hospitals) {
-      ctx.beginPath();
-      ctx.moveTo(px(hospital.lon), py(hospital.lat));
-      ctx.lineTo(w / 2, h / 2);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
     for (const amb of ambulances) {
       if (amb.status === 'available' || amb.status === 'out_of_service') continue;
       ctx.fillStyle = primary;
@@ -98,8 +110,8 @@ export function MiniMap({
     for (const incident of incidents) {
       if (incident.status === 'closed' || incident.status === 'cancelled') continue;
       const color = palette[toneForSeverity(incident.severity)];
-      const x = px(incident.lon);
-      const y = py(incident.lat);
+      const x = px(incident.location.lon);
+      const y = py(incident.location.lat);
       ctx.globalAlpha = 0.16;
       ctx.beginPath();
       ctx.arc(x, y, 14, 0, Math.PI * 2);
@@ -115,46 +127,28 @@ export function MiniMap({
       ctx.stroke();
     }
 
-    for (const hospital of hospitals) {
-      const x = px(hospital.lon);
-      const y = py(hospital.lat);
-      ctx.fillStyle = ink;
-      ctx.beginPath();
-      ctx.roundRect(x - 5, y - 5, 10, 10, 3);
-      ctx.fill();
-      ctx.fillStyle = surface;
-      ctx.beginPath();
-      ctx.roundRect(x - 2.5, y - 2.5, 5, 5, 1.5);
-      ctx.fill();
-    }
-  }, [hospitals, ambulances, incidents]);
+    const hx = px(hospital.lon);
+    const hy = py(hospital.lat);
+    ctx.fillStyle = ink;
+    ctx.beginPath();
+    ctx.roundRect(hx - 5, hy - 5, 10, 10, 3);
+    ctx.fill();
+    ctx.fillStyle = surface;
+    ctx.beginPath();
+    ctx.roundRect(hx - 2.5, hy - 2.5, 5, 5, 1.5);
+    ctx.fill();
+  }, [points, hospital, ambulances, incidents]);
 
   return (
-    <section className="card relative overflow-hidden">
+    <section className="card overflow-hidden">
       <div className="flex items-baseline justify-between px-5 pt-4 pb-3">
-        <h2 className="text-sm font-semibold tracking-tight">Where things are happening</h2>
-        <motion.span
-          animate={reduce ? undefined : { opacity: [0.45, 1, 0.45] }}
-          transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
-          className="text-xs text-muted"
-        >
-          Live positions
-        </motion.span>
+        <h2 className="text-sm font-semibold tracking-tight">Around your hospital</h2>
+        <span className="text-xs text-muted">Live positions</span>
       </div>
       <canvas
         ref={canvas}
-        onMouseMove={(e) => {
-          if (reduce) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const x = ((e.clientX - rect.left) / rect.width - 0.5) * 14;
-          const y = ((e.clientY - rect.top) / rect.height - 0.5) * 14;
-          e.currentTarget.style.transform = `perspective(900px) rotateY(${x}deg) rotateX(${-y}deg) scale(1.015)`;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = '';
-        }}
-        className="block h-56 w-full transition-transform duration-300 ease-out @2xl:h-72"
-        aria-label="Map of hospitals, ambulances and open cases"
+        className="block h-52 w-full sm:h-64"
+        aria-label="Map of your hospital, its ambulances and open cases"
         role="img"
       />
       <ul className="flex flex-wrap gap-x-4 gap-y-1.5 px-5 py-3.5 text-2xs text-muted">
@@ -165,7 +159,8 @@ export function MiniMap({
           </li>
         ))}
         <li className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-primary" />Ambulance
+          <span className="size-2 rounded-full bg-primary" />
+          Ambulance out
         </li>
       </ul>
     </section>

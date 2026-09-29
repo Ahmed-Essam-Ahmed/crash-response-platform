@@ -1,29 +1,41 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import type { Incident } from '../types';
 import { severityWord, toneForSeverity } from '../lib/status';
-import { clock, minutes } from '../lib/format';
+import { clock, distance, minutes, todayTime } from '../lib/format';
+import { copyText } from '../lib/clipboard';
 
-const FACTOR_LABELS: Record<string, string> = {
-  peak_g: 'Hardest impact (g)',
-  delta_v_mps: 'Speed lost (m/s)',
-  speed_at_impact_mps: 'Speed on impact (m/s)',
-  post_crash_inactive: 'Person not moving',
-  impact_type: 'Type of impact',
-};
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="tnum text-right text-sm font-semibold">{value}</dd>
+    </div>
+  );
+}
 
-export function DetailSheet({
-  incident,
-  hospitalName,
-  onClose,
-}: {
-  incident: Incident | null;
-  hospitalName: string;
-  onClose: () => void;
-}) {
+function List({ label, items }: { label: string; items: string[] }) {
+  const clean = items.filter((item) => item && item.toLowerCase() !== 'none');
+  if (clean.length === 0) return null;
+  return (
+    <section>
+      <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">{label}</h3>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {clean.map((item) => (
+          <li key={item} className="surface-2 rounded-full px-3 py-1 text-sm capitalize">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function DetailSheet({ incident, onClose }: { incident: Incident | null; onClose: () => void }) {
   const reduce = useReducedMotion();
   const panel = useRef<HTMLElement | null>(null);
   const restore = useRef<HTMLElement | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!incident) return;
@@ -35,12 +47,15 @@ export function DetailSheet({
     panel.current?.focus();
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    setCopied(false);
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = previous;
       restore.current?.focus();
     };
   }, [incident, onClose]);
+
+  const patient = incident?.patient;
 
   return (
     <AnimatePresence>
@@ -74,12 +89,10 @@ export function DetailSheet({
             <header className="flex items-start justify-between gap-4 border-b border-line p-5">
               <div className="min-w-0" data-tone={toneForSeverity(incident.severity)}>
                 <span className="chip rounded-full px-2.5 py-1 text-xs font-semibold">
-                  {severityWord(incident.severity)} · severity {incident.severity.toFixed(1)}
+                  {severityWord(incident.severity)}
                 </span>
                 <h2 className="tnum mt-2 text-lg font-semibold tracking-tight">{incident.alert_id}</h2>
-                <p className="text-sm text-muted">
-                  {hospitalName} · {incident.destination.replace(/_/g, ' ')}
-                </p>
+                <p className="text-sm text-muted capitalize">{incident.status.replace(/_/g, ' ')}</p>
               </div>
               <motion.button
                 whileTap={reduce ? undefined : { scale: 0.92 }}
@@ -87,47 +100,79 @@ export function DetailSheet({
                 aria-label="Close details"
                 className="grid size-11 shrink-0 place-items-center rounded-xl border border-line text-muted hover:text-ink"
               >
-                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                   <path d="M18 6 6 18M6 6l12 12" />
                 </svg>
               </motion.button>
             </header>
 
             <div className="flex-1 space-y-6 overflow-y-auto p-5">
+              {incident.severity_summary && (
+                <p className="surface-2 rounded-xl px-4 py-3 text-sm">{incident.severity_summary}</p>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Team reaches crash', value: minutes(incident.eta_scene_seconds) },
                   { label: 'Patient arrives', value: minutes(incident.eta_hospital_seconds) },
                 ].map((item) => (
                   <div key={item.label} className="surface-2 rounded-xl p-3.5">
-                    <p className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                      {item.label}
-                    </p>
+                    <p className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">{item.label}</p>
                     <p className="tnum mt-1 text-xl font-semibold">{item.value}</p>
                   </div>
                 ))}
               </div>
 
-              {incident.impact_factors && Object.keys(incident.impact_factors).length > 0 && (
-                <section>
-                  <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                    What the sensors found
-                  </h3>
-                  <dl className="mt-2.5 divide-y divide-[var(--line)] overflow-hidden rounded-xl border border-line">
-                    {Object.entries(incident.impact_factors).map(([key, value]) => (
-                      <div key={key} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
-                        <dt className="text-sm text-muted">{FACTOR_LABELS[key] ?? key.replace(/_/g, ' ')}</dt>
-                        <dd className="tnum text-sm font-semibold">{String(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
+              <section>
+                <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">Where</h3>
+                <p className="mt-2 text-sm">
+                  {incident.location.label ?? `${incident.location.lat.toFixed(5)}, ${incident.location.lon.toFixed(5)}`}
+                </p>
+                <p className="tnum mt-0.5 text-xs text-muted">
+                  {incident.location.lat.toFixed(5)}, {incident.location.lon.toFixed(5)}
+                  {incident.distance_m != null && <> · {distance(incident.distance_m)} from your hospital</>}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a href={incident.location.directions_url} target="_blank" rel="noreferrer" className="btn btn-ghost">
+                    Directions
+                  </a>
+                  <a href={incident.location.maps_url} target="_blank" rel="noreferrer" className="btn btn-ghost">
+                    Google Maps
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={async () => {
+                      const ok = await copyText(incident.share_text);
+                      setCopied(ok);
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy details'}
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">Patient</h3>
+                <dl className="mt-2.5 divide-y divide-[var(--line)] overflow-hidden rounded-xl border border-line">
+                  <Row label="Name" value={patient?.name ?? 'Unknown'} />
+                  <Row label="Age" value={patient?.age != null ? patient.age : '—'} />
+                  <Row label="Blood type" value={patient?.blood_type ?? '—'} />
+                  <Row label="Sex" value={patient?.gender ? patient.gender : '—'} />
+                  {patient?.notes && <Row label="Notes" value={patient.notes} />}
+                </dl>
+              </section>
+
+              {patient && (
+                <div className="space-y-5">
+                  <List label="Ongoing conditions" items={patient.conditions} />
+                  <List label="Medications" items={patient.medications} />
+                  <List label="Allergies" items={patient.allergies} />
+                </div>
               )}
 
               <section>
-                <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                  What has happened so far
-                </h3>
+                <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">What has happened</h3>
                 <ol className="mt-3">
                   {(incident.events ?? []).length === 0 && (
                     <li className="text-sm text-muted">No activity recorded yet.</li>
@@ -156,6 +201,10 @@ export function DetailSheet({
                   })}
                 </ol>
               </section>
+
+              {incident.occurred_at && (
+                <p className="text-xs text-muted">Crash happened {todayTime(incident.occurred_at)}</p>
+              )}
             </div>
           </motion.aside>
         </div>

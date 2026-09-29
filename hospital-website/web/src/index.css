@@ -156,11 +156,16 @@
     padding-inline: 1rem;
     font-size: var(--text-sm);
     font-weight: 600;
+    cursor: pointer;
     transition:
       background-color 0.2s var(--ease-out-quint),
       color 0.2s var(--ease-out-quint),
       box-shadow 0.2s var(--ease-out-quint),
       border-color 0.2s var(--ease-out-quint);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 
   .btn-primary {
@@ -180,6 +185,16 @@
   .btn-ghost:hover {
     color: var(--ink);
     box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+
+  .btn-danger {
+    background-color: transparent;
+    color: var(--sev-critical);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sev-critical) 40%, transparent);
+  }
+  .btn-danger:hover {
+    background-color: color-mix(in oklab, var(--sev-critical) 10%, transparent);
+    color: var(--sev-critical);
   }
 
   .surface-2 {
@@ -217,18 +232,10 @@
   }
 }
 
-@property --border-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-
 @layer components {
   .fx {
     position: relative;
     isolation: isolate;
-    transform-style: preserve-3d;
-    will-change: transform;
   }
 
   .fx::after {
@@ -241,7 +248,7 @@
     opacity: 0;
     background: radial-gradient(
       17rem circle at var(--mx, 50%) var(--my, 50%),
-      color-mix(in oklab, var(--tone, var(--primary)) 20%, transparent),
+      color-mix(in oklab, var(--tone, var(--primary)) 18%, transparent),
       transparent 68%
     );
     transition: opacity 0.35s var(--ease-out-quint);
@@ -249,90 +256,6 @@
 
   .fx:hover::after {
     opacity: 1;
-  }
-
-  .fx-border::before {
-    content: '';
-    position: absolute;
-    inset: -1.5px;
-    z-index: 3;
-    border-radius: inherit;
-    padding: 1.5px;
-    pointer-events: none;
-    opacity: 0;
-    background: conic-gradient(
-      from var(--border-angle),
-      transparent 0%,
-      var(--tone, var(--primary)) 10%,
-      transparent 24%,
-      transparent 48%,
-      color-mix(in oklab, var(--tone, var(--primary)) 65%, white) 60%,
-      transparent 74%
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    transition: opacity 0.35s var(--ease-out-quint);
-  }
-
-  .fx-border:hover::before {
-    opacity: 1;
-    animation: border-spin 3.4s linear infinite;
-  }
-
-  .sheen {
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    overflow: hidden;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-
-  .sheen::after {
-    content: '';
-    position: absolute;
-    inset: -40%;
-    background: linear-gradient(
-      105deg,
-      transparent 38%,
-      color-mix(in oklab, white 30%, transparent) 50%,
-      transparent 62%
-    );
-    transform: translate3d(-115%, 0, 0);
-    transition: transform 0.75s var(--ease-out-quint);
-  }
-
-  .sheen-host:hover .sheen::after {
-    transform: translate3d(115%, 0, 0);
-  }
-
-  .sheen-host {
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-  }
-
-  .magnetic {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .magnetic::before {
-    content: '';
-    position: absolute;
-    inset: -0.875rem;
-  }
-}
-
-@keyframes border-spin {
-  to {
-    --border-angle: 360deg;
   }
 }
 
@@ -443,13 +366,7 @@
     animation: none !important;
   }
 
-  .fx-border::before,
-  .fx-border:hover::before {
-    animation: none !important;
-  }
-
-  .fx,
-  .sheen::after {
-    transform: none !important;
+  .fx::after {
+    opacity: 0 !important;
   }
 }

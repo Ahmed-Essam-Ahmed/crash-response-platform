@@ -9,6 +9,8 @@ export type IncidentStatus =
   | 'closed'
   | 'cancelled';
 
+export type Role = 'admin' | 'dispatcher' | 'viewer';
+
 export interface IncidentEvent {
   status: IncidentStatus;
   note: string | null;
@@ -16,24 +18,67 @@ export interface IncidentEvent {
   created_at: string | null;
 }
 
+export interface Patient {
+  name: string | null;
+  age: number | null;
+  blood_type: string | null;
+  gender: string | null;
+  conditions: string[];
+  medications: string[];
+  allergies: string[];
+  notes: string | null;
+}
+
+export interface CaseLocation {
+  lat: number;
+  lon: number;
+  label: string | null;
+  maps_url: string;
+  directions_url: string;
+}
+
+export interface Assignment {
+  accepted: boolean;
+  accepted_at: string | null;
+  accepted_by: string | null;
+  ambulance_ids: string[];
+}
+
 export interface Incident {
   alert_id: string;
   trip_id: string;
   severity: number;
-  lat: number;
-  lon: number;
+  severity_source: string;
+  severity_confidence: number | null;
+  severity_summary: string | null;
   status: IncidentStatus;
+  status_step: number;
   destination: string;
-  medical_profile_ref: string | null;
-  assignment: { hospital_id: string | null; ambulance_ids: string[] };
-  eta_scene_seconds: number | null;
-  eta_hospital_seconds: number | null;
-  detection: Record<string, unknown> | null;
-  impact_factors: Record<string, number> | null;
+  patient: Patient | null;
+  location: CaseLocation;
+  occurred_at: string | null;
   created_at: string | null;
   updated_at: string | null;
   closed_at: string | null;
+  eta_scene_seconds: number | null;
+  eta_hospital_seconds: number | null;
+  distance_m: number | null;
+  assignment: Assignment;
+  share_text: string;
   events?: IncidentEvent[];
+}
+
+export interface Offer {
+  offer_id: number;
+  alert_id: string;
+  stage: number;
+  broadcast: boolean;
+  status: string;
+  offered_at: string;
+  expires_at: string;
+  distance_m: number | null;
+  eta_seconds: number | null;
+  incident: Incident;
 }
 
 export interface Hospital {
@@ -41,23 +86,66 @@ export interface Hospital {
   name: string;
   lat: number;
   lon: number;
-  capacity: number;
+  address: string | null;
+  location_label: string | null;
+  phone: string | null;
+  emergency_phone: string | null;
   trauma_level: number;
-  current_load: number;
+  ambulances_total: number;
+  ambulances_available: number;
+  beds_total: number;
+  beds_occupied: number;
   free_beds: number;
+  maps_url: string;
 }
 
 export interface Ambulance {
   ambulance_id: string;
+  label: string | null;
   lat: number;
   lon: number;
   status: string;
-  hospital_id: string | null;
+  hospital_id: number | null;
   incident_id: number | null;
 }
 
+export interface User {
+  user_id: number;
+  email: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+  created_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface CasesResponse {
+  assigned: Incident[];
+  recent: Incident[];
+  offers: Offer[];
+}
+
+export interface Session {
+  token: string;
+  expires_at: string;
+  user: User;
+  hospital: Hospital;
+}
+
+export interface GeoResult {
+  label: string;
+  lat: number;
+  lon: number;
+  type: string;
+}
+
 export type StreamEvent =
-  | { type: 'incident_detected'; incident: Incident; required_resources: Record<string, unknown> }
-  | { type: 'incident_status'; alert_id: string; status: IncidentStatus; note: string | null; at_scene: boolean; at: string }
+  | { type: 'case_opened'; alert_id: string; required_resources: Record<string, unknown>; at: string }
+  | { type: 'case_offered'; alert_id: string; incident: Incident; at: string }
+  | { type: 'case_updated'; alert_id: string; incident: Incident; at: string }
+  | { type: 'case_status'; alert_id: string; status: IncidentStatus; note: string | null; at_scene: boolean; incident: Incident; at: string }
+  | { type: 'case_closed'; alert_id: string; incident: Incident; at: string }
+  | { type: 'case_escalated'; alert_id: string; stage: number | string; at?: string }
+  | { type: 'case_unclaimed'; alert_id: string }
   | { type: 'fleet_update'; alert_id: string; status: IncidentStatus; ambulances: Ambulance[] }
-  | { type: 'hospitals_update'; hospitals: Hospital[] };
+  | { type: 'capacity_changed'; kind: 'fleet' | 'beds'; hospital: Hospital; at: string };
