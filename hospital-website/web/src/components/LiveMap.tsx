@@ -88,6 +88,45 @@ function escape(value: string | null | undefined) {
   return (value ?? '').replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+const FRAME = { padding: [34, 34] as [number, number], maxZoom: 15, animate: true };
+
+function contentBounds(hospital: Hospital, incidents: Incident[], ambulances: Ambulance[]) {
+  const bounds = L.latLngBounds([[hospital.lat, hospital.lon]]);
+  for (const incident of incidents) {
+    if (incident.status === 'closed' || incident.status === 'cancelled') continue;
+    bounds.extend([incident.location.lat, incident.location.lon]);
+    toPairs(incident.route?.outbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
+    toPairs(incident.route?.inbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
+  }
+  for (const amb of ambulances) {
+    if (amb.status === 'out_of_service') continue;
+    bounds.extend([amb.lat, amb.lon]);
+  }
+  return bounds;
+}
+
+function frameAll(
+  instance: L.Map,
+  hospital: Hospital,
+  incidents: Incident[],
+  ambulances: Ambulance[],
+) {
+  const bounds = contentBounds(hospital, incidents, ambulances);
+  if (bounds.isValid()) instance.fitBounds(bounds, FRAME);
+  else instance.setView([hospital.lat, hospital.lon], 14, { animate: true });
+}
+
+function recenter(
+  instance: L.Map,
+  hospital: Hospital,
+  incidents: Incident[],
+  ambulances: Ambulance[],
+) {
+  const bounds = contentBounds(hospital, incidents, ambulances);
+  if (bounds.isValid()) instance.flyToBounds(bounds, { ...FRAME, duration: 0.7 });
+  else instance.flyTo([hospital.lat, hospital.lon], 14, { duration: 0.7 });
+}
+
 export function LiveMap({
   hospital,
   ambulances,
@@ -245,18 +284,8 @@ export function LiveMap({
       }
     }
 
-    const bounds = L.latLngBounds([[hospital.lat, hospital.lon]]);
-    live.forEach((i) => {
-      bounds.extend([i.location.lat, i.location.lon]);
-      toPairs(i.route?.outbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
-      toPairs(i.route?.inbound).forEach(([lat, lon]) => bounds.extend([lat, lon]));
-    });
-    ambulances
-      .filter((a) => a.status !== 'out_of_service')
-      .forEach((a) => bounds.extend([a.lat, a.lon]));
-
-    if (bounds.isValid() && !fitted.current) {
-      instance.fitBounds(bounds, { padding: [34, 34], maxZoom: 15 });
+    if (!fitted.current) {
+      frameAll(instance, hospital, live, ambulances);
       fitted.current = true;
     }
   }, [hospital, ambulances, incidents, onFocusCase]);
@@ -289,7 +318,23 @@ export function LiveMap({
           Live
         </span>
       </div>
-      <div ref={holder} className="live-map h-[320px] w-full sm:h-[380px]" />
+      <div className="relative">
+        <div ref={holder} className="live-map h-[320px] w-full sm:h-[380px]" />
+        <button
+          type="button"
+          onClick={() => {
+            const instance = map.current;
+            if (instance) recenter(instance, hospital, incidents, ambulances);
+          }}
+          aria-label="Recentre the map on your hospital and current cases"
+          className="press absolute top-3 right-3 z-[1050] grid size-11 place-items-center rounded-xl border border-line bg-[var(--surface)] text-ink shadow-soft hover:bg-[var(--surface-2)]"
+        >
+          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+          </svg>
+        </button>
+      </div>
       <ul className="flex flex-wrap gap-x-4 gap-y-1.5 px-5 py-3 text-2xs text-muted">
         <li className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-full bg-[#0f766e]" /> Your hospital

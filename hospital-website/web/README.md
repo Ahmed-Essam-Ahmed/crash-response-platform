@@ -177,7 +177,9 @@ map draws, so the pin and the route never disagree.
 
 The map fits every layer once on first load and then leaves the view alone, because a dispatcher
 panning to a case should not have the viewport yanked back by the next position update. Selecting a
-case flies to its pin instead.
+case flies to its pin instead, and the crosshair button above the map flies back to everything the
+hospital is currently responsible for, which is the way out after zooming in on a corner of the city
+or panning somewhere unhelpful. It is a real button, so it is reachable by keyboard.
 
 The whole map is confined to `LiveMap` so swapping in a paid provider later touches one file.
 
