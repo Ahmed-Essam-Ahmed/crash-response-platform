@@ -18,6 +18,11 @@ const SEVERITY: Record<Tone, string> = {
 
 const MOVING = new Set(['en_route', 'on_scene', 'transporting']);
 
+// Google Maps route blue, with a deeper blue underneath for the halo. Only one
+// leg is ever drawn at a time, so the colour is not carrying direction.
+const ROUTE_BLUE = '#669df8';
+const ROUTE_CASING = '#1a5fb4';
+
 type LatLng = [number, number];
 
 function toPairs(points: { lat: number; lon: number }[] | undefined): LatLng[] {
@@ -55,7 +60,6 @@ function routeShape(
   crash: LatLng,
   ambulance: LatLng | null,
 ): { line: LatLng[]; style: L.PolylineOptions; casing: L.PolylineOptions } {
-  const color = SEVERITY[toneForSeverity(incident.severity)];
   const outbound = toPairs(incident.route?.outbound);
   const inbound = toPairs(incident.route?.inbound);
   const returning = incident.status === 'en_route_to_hospital' || incident.status === 'at_hospital';
@@ -71,16 +75,28 @@ function routeShape(
     ambulance,
   );
 
-  // Leaflet simplifies a polyline before drawing it, which is what turns a real
-  // street-for-street route back into something that looks like a straight line.
-  const style: L.PolylineOptions = returning
-    ? { color, weight: 4, opacity: 0.9, smoothFactor: 0 }
-    : { color, weight: 4, opacity: 0.85, dashArray: '7 8', smoothFactor: 0 };
+  // One leg is drawn at a time, so a solid line is enough to read as the road
+  // ahead rather than two directions competing for the same style.
+  const style: L.PolylineOptions = {
+    color: ROUTE_BLUE,
+    weight: 5,
+    opacity: 0.95,
+    lineCap: 'round',
+    lineJoin: 'round',
+    smoothFactor: 0,
+  };
 
   return {
     line,
     style,
-    casing: { color: '#0b1220', weight: 8, opacity: 0.35, lineCap: 'round', smoothFactor: 0 },
+    casing: {
+      color: ROUTE_CASING,
+      weight: 9,
+      opacity: 0.4,
+      lineCap: 'round',
+      lineJoin: 'round',
+      smoothFactor: 0,
+    },
   };
 }
 
