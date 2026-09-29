@@ -19,13 +19,20 @@ def make_db():
 
 def seed(db):
     db.add_all([
-        models.Hospital(code="h-1", name="Near Minor", lat=30.0410, lon=31.2410, capacity=2, trauma_level=1),
-        models.Hospital(code="h-2", name="Far Trauma", lat=30.0480, lon=31.2320, capacity=5, trauma_level=3),
-        models.Hospital(code="h-3", name="Far Minor", lat=30.0300, lon=31.2500, capacity=5, trauma_level=1),
+        models.Hospital(code="h-1", name="Near Minor", lat=30.0410, lon=31.2410, trauma_level=1,
+                        beds_total=4, ambulances_total=3),
+        models.Hospital(code="h-2", name="Far Trauma", lat=30.0480, lon=31.2320, trauma_level=3,
+                        beds_total=5, ambulances_total=2),
     ])
-    for i, pos in enumerate([(30.0410, 31.2410), (30.0420, 31.2420), (30.0300, 31.2500)]):
-        db.add(models.Ambulance(code=f"amb-{i}", lat=pos[0], lon=pos[1], status="available", hospital_code="h-1"))
     db.commit()
+
+    near = db.query(models.Hospital).filter_by(code="h-1").first()
+    far = db.query(models.Hospital).filter_by(code="h-2").first()
+    for hospital, count in ((near, 3), (far, 2)):
+        dispatch.resize_fleet(db, hospital, count)
+        dispatch.set_availability(db, hospital, count)
+    db.commit()
+    return near, far
 
 
 class TriageTest(unittest.TestCase):
@@ -48,60 +55,51 @@ class TriageTest(unittest.TestCase):
 class DispatchTest(unittest.TestCase):
     def setUp(self):
         self.db = make_db()
-        seed(self.db)
+        self.near, self.far = seed(self.db)
 
-    def test_picks_nearest_hospital_with_free_beds(self):
-        chosen = dispatch.select_hospital(self.db, Destination.MINOR, SCENE)
-        self.assertEqual(chosen.code, "h-1")
-
-    def test_trauma_case_skips_non_trauma_hospitals(self):
-        chosen = dispatch.select_hospital(self.db, Destination.TRAUMA_CENTRE, SCENE)
-        self.assertEqual(chosen.code, "h-2")
-
-    def test_falls_back_when_nearest_is_full(self):
-        near = self.db.query(models.Hospital).filter(models.Hospital.code == "h-1").first()
-        near.current_load = near.capacity
+    def test_resize_creates_and_removes_ambulances(self):
+        dispatch.resize_fleet(self.db, self.near, 5)
         self.db.commit()
-        chosen = dispatch.select_hospital(self.db, Destination.MINOR, SCENE)
-        self.assertNotEqual(chosen.code, "h-1")
-        self.assertEqual(chosen.code, "h-2")
-
-    def test_ambulances_ranked_by_distance_and_limited(self):
-        chosen = dispatch.select_ambulances(self.db, None, SCENE, 2)
-        self.assertEqual(len(chosen), 2)
-        self.assertEqual(chosen[0].code, "amb-0")
-        self.assertLessEqual(
-            geo.haversine_m(chosen[0].lat, chosen[0].lon, SCENE["lat"], SCENE["lon"]),
-            geo.haversine_m(chosen[1].lat, chosen[1].lon, SCENE["lat"], SCENE["lon"]),
-        )
-
-    def test_no_available_ambulance_raises(self):
-        for amb in self.db.query(models.Ambulance).all():
-            amb.status = "en_route"
+        self.assertEqual(len(self.near.ambulances), 5)
+        dispatch.resize_fleet(self.db, self.near, 2)
         self.db.commit()
-        with self.assertRaises(dispatch.NoResource):
-            dispatch.select_ambulances(self.db, None, SCENE, 1)
+        self.assertEqual(len(self.near.ambulances), 2)
 
-    def test_reserve_and_release_balance_load(self):
-        hospital = self.db.query(models.Hospital).filter(models.Hospital.code == "h-1").first()
-        ambulances = dispatch.select_ambulances(self.db, hospital, SCENE, 2)
-        dispatch.reserve(self.db, hospital, ambulances)
-        self.assertEqual(hospital.current_load, 1)
-        self.assertTrue(all(not a.is_available for a in ambulances))
-
+    def test_cannot_shrink_below_busy_ambulances(self):
         incident = models.Incident(alert_id="a-1", trip_id="t", severity=6, lat=30.04, lon=31.24,
-                                   hospital_code="h-1")
+                                   hospital_id=self.near.id)
         self.db.add(incident)
         self.db.commit()
-        for amb in ambulances:
-            amb.incident_id = incident.id
+        busy = self.near.ambulances[0]
+        busy.incident_id = incident.id
         self.db.commit()
-        self.db.refresh(incident)
-        self.assertEqual(len(incident.ambulances), 2)
+        with self.assertRaises(dispatch.CapacityError):
+            dispatch.resize_fleet(self.db, self.near, 0)
 
-        dispatch.release(self.db, incident)
-        self.assertEqual(hospital.current_load, 0)
-        self.assertTrue(all(a.is_available for a in ambulances))
+    def test_availability_recomputes_from_status(self):
+        dispatch.set_availability(self.db, self.near, 1)
+        self.db.commit()
+        self.assertEqual(self.near.ambulances_available, 1)
+        with self.assertRaises(dispatch.CapacityError):
+            dispatch.set_availability(self.db, self.near, 99)
+
+    def test_occupied_beds_track_active_cases(self):
+        self.assertEqual(self.near.beds_occupied, 0)
+        incident = models.Incident(alert_id="a-2", trip_id="t", severity=6, lat=30.04, lon=31.24,
+                                   hospital_id=self.near.id, status="on_scene")
+        self.db.add(incident)
+        self.db.commit()
+        dispatch.sync_beds(self.db, self.near)
+        self.assertEqual(self.near.beds_occupied, 1)
+        self.assertEqual(self.near.free_beds, 3)
+
+    def test_cannot_set_beds_below_active_cases(self):
+        incident = models.Incident(alert_id="a-3", trip_id="t", severity=6, lat=30.04, lon=31.24,
+                                   hospital_id=self.near.id, status="on_scene")
+        self.db.add(incident)
+        self.db.commit()
+        with self.assertRaises(dispatch.CapacityError):
+            dispatch.set_beds(self.db, self.near, 0)
 
     def test_eta_scales_with_distance(self):
         near = geo.eta_seconds(geo.haversine_m(30.040, 31.240, 30.041, 31.241))

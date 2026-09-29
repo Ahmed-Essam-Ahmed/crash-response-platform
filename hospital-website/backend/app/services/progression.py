@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .. import models, serializers
 from ..config import HANDOVER_SECONDS, ON_SCENE_SECONDS, PROGRESSION_TICK_SECONDS, TIME_SCALE
@@ -10,7 +10,6 @@ from . import dispatch
 
 DURATIONS = {
     lifecycle.Status.AMBULANCE_ASSIGNED: 1.0,
-    lifecycle.Status.EN_ROUTE_TO_HOSPITAL: None,
     lifecycle.Status.AT_HOSPITAL: HANDOVER_SECONDS,
 }
 
@@ -51,12 +50,13 @@ def _next_for(incident):
 
     if status is lifecycle.Status.EN_ROUTE_TO_HOSPITAL:
         if elapsed >= _scaled(incident.eta_hospital_seconds or 0):
-            return lifecycle.Status.AT_HOSPITAL, f"arrived at {incident.hospital_code}", True
+            name = incident.hospital.name if incident.hospital is not None else "hospital"
+            return lifecycle.Status.AT_HOSPITAL, f"arrived at {name}", True
         return None
 
     if status is lifecycle.Status.AT_HOSPITAL:
         if elapsed >= _scaled(DURATIONS[status]):
-            return lifecycle.Status.CLOSED, "patient handed over, incident closed", False
+            return lifecycle.Status.CLOSED, "patient handed over, case closed", False
         return None
 
     return None
@@ -104,55 +104,71 @@ async def _transition(db, incident, target, note, at_scene):
     db.commit()
     db.refresh(incident)
 
+    hospital = incident.hospital
     if target is lifecycle.Status.CLOSED:
-        dispatch.release(db, incident)
+        for amb in incident.ambulances:
+            amb.incident_id = None
+            amb.status = "available"
+            amb.lat, amb.lon = (hospital.lat, hospital.lon) if hospital else (amb.lat, amb.lon)
+        if hospital is not None:
+            hospital.current_load = max(0, hospital.current_load - 1)
+            dispatch.sync_availability(db, hospital)
+            dispatch.sync_beds(db, hospital)
+        db.commit()
     else:
         _move_ambulances(incident)
         db.commit()
 
-    await realtime.broadcast({
-        "type": "incident_status",
-        "alert_id": incident.alert_id,
-        "status": target.value,
-        "note": note,
-        "at_scene": at_scene,
-        "at": datetime.utcnow().isoformat(),
-    })
+    if hospital is not None:
+        await realtime.broadcast(
+            {
+                "type": "case_status",
+                "alert_id": incident.alert_id,
+                "status": target.value,
+                "note": note,
+                "at_scene": at_scene,
+                "incident": serializers.incident_to_dict(incident, include_events=False),
+                "hospital": serializers.hospital_to_dict(hospital),
+                "at": datetime.utcnow().isoformat(),
+            },
+            hospital_id=hospital.id,
+        )
+
+
+def _assigned_active(db):
+    return (
+        db.query(models.Incident)
+        .filter(
+            models.Incident.hospital_id.isnot(None),
+            models.Incident.status.notin_([lifecycle.Status.CLOSED.value, lifecycle.Status.CANCELLED.value]),
+        )
+        .all()
+    )
 
 
 async def tick() -> None:
     db = SessionLocal()
     try:
-        active = db.query(models.Incident).filter(
-            models.Incident.status.notin_([lifecycle.Status.CLOSED.value,
-                                           lifecycle.Status.CANCELLED.value])
-        ).all()
-        changed = False
-        for incident in active:
+        for incident in _assigned_active(db):
             nxt = _next_for(incident)
             if nxt is not None:
                 target, note, at_scene = nxt
                 await _transition(db, incident, target, note, at_scene)
-                changed = True
             else:
                 before = [(a.code, round(a.lat, 6), round(a.lon, 6)) for a in incident.ambulances]
                 _move_ambulances(incident)
                 db.commit()
                 after = [(a.code, round(a.lat, 6), round(a.lon, 6)) for a in incident.ambulances]
                 if before != after:
-                    changed = True
-                    await realtime.broadcast({
-                        "type": "fleet_update",
-                        "alert_id": incident.alert_id,
-                        "status": incident.status,
-                        "ambulances": [serializers.ambulance_to_dict(a) for a in incident.ambulances],
-                    })
-        if changed:
-            hospitals = db.query(models.Hospital).all()
-            await realtime.broadcast({
-                "type": "hospitals_update",
-                "hospitals": [serializers.hospital_to_dict(h) for h in hospitals],
-            })
+                    await realtime.broadcast(
+                        {
+                            "type": "fleet_update",
+                            "alert_id": incident.alert_id,
+                            "status": incident.status,
+                            "ambulances": [serializers.ambulance_to_dict(a) for a in incident.ambulances],
+                        },
+                        hospital_id=incident.hospital_id,
+                    )
     finally:
         db.close()
 

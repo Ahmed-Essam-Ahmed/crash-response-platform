@@ -3,50 +3,75 @@ import uuid
 from datetime import datetime
 
 from .. import models, serializers
-from ..domain import geo, lifecycle, triage
+from ..domain import lifecycle, triage
 from ..realtime import realtime
-from . import dispatch, notifications
+from . import dispatch, offers
+
+PATIENT_FIELDS = ("full_name", "age", "blood_type", "gender", "conditions", "medications", "allergies", "notes")
 
 
-async def _advance(db, incident, status, note=None, at_scene=False):
+def _json_list(value) -> str:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return json.dumps([value])
+    return json.dumps(list(value))
+
+
+def build_patient(db, payload: dict) -> models.PatientProfile:
+    patient = payload.get("patient") or {}
+    return models.PatientProfile(
+        full_name=patient.get("name") or patient.get("full_name"),
+        age=patient.get("age"),
+        blood_type=patient.get("blood_type") or patient.get("bloodType"),
+        gender=patient.get("gender"),
+        conditions=_json_list(patient.get("conditions") or patient.get("medical_conditions")),
+        medications=_json_list(patient.get("medications")),
+        allergies=_json_list(patient.get("allergies")),
+        notes=patient.get("notes"),
+    )
+
+
+async def _advance(db, incident, status, note=None, at_scene=False, announce=True):
     incident.status = lifecycle.assert_transition(incident.status, status)
     incident.updated_at = datetime.utcnow()
-    event = models.IncidentEvent(incident_id=incident.id, status=incident.status, note=note, at_scene=at_scene)
-    db.add(event)
+    db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note=note, at_scene=at_scene))
     db.commit()
     db.refresh(incident)
-    await realtime.broadcast({
-        "type": "incident_status",
-        "alert_id": incident.alert_id,
-        "status": incident.status,
-        "note": note,
-        "at_scene": at_scene,
-        "assignment": {
-            "hospital_id": incident.hospital_code,
-            "ambulance_ids": [a.code for a in incident.ambulances],
-        },
-        "at": datetime.utcnow().isoformat(),
-    })
+    if announce:
+        await offers.announce(db, incident, "incident_status")
     return incident
 
 
-async def create_incident(db, payload: dict) -> models.Incident:
+async def create_case(db, payload: dict) -> models.Incident:
     location = payload.get("location") or {}
     severity = float(payload.get("severity") or 0.0)
     trip_id = payload.get("trip_id") or f"trip-{uuid.uuid4().hex[:8]}"
-
     destination = triage.destination_for(severity)
-    resources = triage.required_resources(severity)
+
+    occurred_at = payload.get("occurred_at")
+    if isinstance(occurred_at, str):
+        occurred_at = datetime.fromisoformat(occurred_at.replace("Z", "+00:00")).replace(tzinfo=None)
+    elif not isinstance(occurred_at, datetime):
+        occurred_at = datetime.utcnow()
+
+    patient = build_patient(db, payload)
+    db.add(patient)
 
     incident = models.Incident(
-        alert_id=f"alert-{uuid.uuid4().hex[:8]}",
+        alert_id=offers.new_alert_id(),
         trip_id=trip_id,
         severity=severity,
+        severity_source=payload.get("severity_source") or "ai",
+        severity_confidence=payload.get("severity_confidence"),
+        severity_summary=payload.get("severity_summary") or payload.get("ai_summary"),
         lat=float(location.get("lat", 30.04)),
         lon=float(location.get("lon", 31.24)),
+        location_label=payload.get("location_label") or location.get("label") or location.get("address"),
+        occurred_at=occurred_at,
         status=lifecycle.Status.DETECTED.value,
         destination=destination.value,
-        medical_profile_ref=payload.get("medical_profile_ref"),
+        patient=patient,
         detection=json.dumps(payload.get("detection") or {}),
         impact_factors=json.dumps(payload.get("impact_factors") or payload.get("factors") or {}),
         created_at=datetime.utcnow(),
@@ -54,64 +79,55 @@ async def create_incident(db, payload: dict) -> models.Incident:
     db.add(incident)
     db.commit()
     db.refresh(incident)
-    db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note="crash detected"))
+    db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note="case received"))
     db.commit()
 
-    await realtime.broadcast({
-        "type": "incident_detected",
-        "incident": serializers.incident_to_dict(incident, include_events=False),
-        "required_resources": resources,
-    })
-
-    notifications.notify(db, incident.medical_profile_ref, incident)
     await _advance(db, incident, lifecycle.Status.CONTACTS_NOTIFIED, note="emergency contacts notified")
 
-    hospital = dispatch.select_hospital(db, destination, {"lat": incident.lat, "lon": incident.lon})
-    ambulances = dispatch.select_ambulances(
-        db, hospital, {"lat": incident.lat, "lon": incident.lon}, resources["ambulances"]
-    )
-
-    scene = {"lat": incident.lat, "lon": incident.lon}
-    lead = min(ambulances, key=lambda a: geo.haversine_m(a.lat, a.lon, scene["lat"], scene["lon"]))
-    distance_m = geo.haversine_m(lead.lat, lead.lon, scene["lat"], scene["lon"])
-    scene_eta = geo.eta_seconds(distance_m)
-    hospital_eta = geo.eta_seconds(
-        geo.haversine_m(hospital.lat, hospital.lon, scene["lat"], scene["lon"]),
-        geo.LOAD_SPEED_MPS,
-    )
-
-    incident.hospital_code = hospital.code
-    incident.eta_scene_seconds = scene_eta
-    incident.eta_hospital_seconds = hospital_eta
-    for amb in ambulances:
-        amb.incident_id = incident.id
-    dispatch.reserve(db, hospital, ambulances)
-    db.commit()
+    created = offers.open_case(db, incident)
     db.refresh(incident)
 
-    await _advance(
-        db, incident, lifecycle.Status.AMBULANCE_ASSIGNED,
-        note=f"{len(ambulances)} ambulance(s) assigned from {hospital.name}",
-    )
+    await realtime.broadcast_all({
+        "type": "case_opened",
+        "alert_id": incident.alert_id,
+        "required_resources": triage.required_resources(severity),
+        "at": datetime.utcnow().isoformat(),
+    })
+    for offer in created:
+        await offers.announce(db, incident, "case_offered")
+
     return incident
 
 
-async def cancel_incident(db, incident):
+async def accept_case(db, incident, hospital, user):
+    offers.accept(db, incident, hospital, user)
+    db.refresh(incident)
+    await _advance(
+        db, incident,
+        lifecycle.Status.AMBULANCE_ASSIGNED,
+        note=f"accepted by {hospital.name}",
+    )
+    dispatch.sync_availability(db, hospital)
+    return incident
+
+
+async def decline_case(db, incident, hospital, user):
+    offers.decline(db, incident, hospital, user)
+    await offers.announce(db, incident, "case_updated")
+    return incident
+
+
+async def cancel_case(db, incident, hospital):
     for amb in incident.ambulances:
         amb.status = "available"
         amb.incident_id = None
     if incident.hospital is not None:
         incident.hospital.current_load = max(0, incident.hospital.current_load - 1)
+        dispatch.sync_availability(db, incident.hospital)
     incident.status = lifecycle.Status.CANCELLED.value
     incident.closed_at = datetime.utcnow()
-    db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note="cancelled by operator"))
+    db.add(models.IncidentEvent(incident_id=incident.id, status=incident.status, note="cancelled by hospital"))
     db.commit()
     db.refresh(incident)
-    await realtime.broadcast({
-        "type": "incident_status",
-        "alert_id": incident.alert_id,
-        "status": incident.status,
-        "note": "cancelled by operator",
-        "at": datetime.utcnow().isoformat(),
-    })
+    await offers.announce(db, incident, "case_closed")
     return incident

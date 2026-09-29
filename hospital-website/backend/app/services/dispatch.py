@@ -1,50 +1,107 @@
+"""Fleet and bed capacity, kept in step with the ambulance records.
+
+`ambulances_total` is how many ambulances the hospital owns. `ambulances_available`
+is how many of those are usable right now, which is what changes when one is
+bought, written off, or sent for servicing. Occupied beds are derived from the
+active cases a hospital is holding, so the two can never disagree.
+"""
+
+import uuid
+
 from .. import models
-from ..domain import geo, triage
 
 
-class NoResource(Exception):
-    def __init__(self, message):
-        super().__init__(message)
+class CapacityError(Exception):
+    pass
 
 
-def select_hospital(db, destination, location: dict):
-    hospitals = db.query(models.Hospital).all()
-    if not hospitals:
-        raise NoResource("no hospitals registered")
+def active_cases(hospital: models.Hospital) -> list:
+    from ..domain import lifecycle
 
-    eligible = [h for h in hospitals if triage.accepts(h.trauma_level, destination)]
-    if not eligible:
-        raise NoResource(f"no hospital accepts {destination.value}")
-
-    with_beds = [h for h in eligible if h.free_beds > 0]
-    pool = with_beds or eligible
-    return min(pool, key=lambda h: geo.haversine_m(h.lat, h.lon, location["lat"], location["lon"]))
+    return [i for i in hospital.incidents if lifecycle.is_active(i.status)]
 
 
-def select_ambulances(db, hospital, location: dict, count: int):
-    fleet = [a for a in db.query(models.Ambulance).all() if a.is_available]
-    if not fleet:
-        raise NoResource("no ambulance available")
-
-    ranked = sorted(
-        fleet,
-        key=lambda a: geo.haversine_m(a.lat, a.lon, location["lat"], location["lon"]),
-    )
-    return ranked[:count]
+def sync_availability(db, hospital: models.Hospital) -> None:
+    hospital.ambulances_available = len([a for a in hospital.ambulances if a.is_available])
 
 
-def reserve(db, hospital, ambulances) -> None:
-    hospital.current_load += 1
-    for amb in ambulances:
-        amb.status = "assigned"
-    db.commit()
+def sync_beds(db, hospital: models.Hospital) -> None:
+    in_use = len(active_cases(hospital))
+    hospital.beds_occupied = min(in_use, hospital.beds_total) if hospital.beds_total else in_use
+    hospital.current_load = in_use
 
 
-def release(db, incident) -> None:
-    for amb in incident.ambulances:
-        amb.status = "available"
-        amb.incident_id = None
-    hospital = incident.hospital
-    if hospital is not None:
-        hospital.current_load = max(0, hospital.current_load - 1)
-    db.commit()
+def resize_fleet(db, hospital: models.Hospital, total: int | None = None) -> list:
+    if total is None:
+        return []
+
+    total = max(0, int(total))
+    fleet = sorted(hospital.ambulances, key=lambda a: a.id)
+    busy = [a for a in fleet if a.incident_id is not None]
+    idle = [a for a in fleet if a.incident_id is None]
+
+    if total < len(busy):
+        raise CapacityError(
+            f"cannot go below {len(busy)}: {len(busy)} ambulance(s) are out on a case right now"
+        )
+
+    created = []
+    while len(fleet) < total:
+        index = len(fleet) + 1
+        amb = models.Ambulance(
+            code=f"{hospital.code}-amb-{suffix(hospital.code, index)}",
+            label=f"Unit {index}",
+            lat=hospital.lat,
+            lon=hospital.lon,
+            status="available",
+            hospital=hospital,
+        )
+        db.add(amb)
+        fleet.append(amb)
+        created.append(amb)
+
+    surplus = len(fleet) - total
+    if surplus > 0:
+        for amb in idle[-surplus:]:
+            db.delete(amb)
+            fleet.remove(amb)
+
+    db.flush()
+    sync_availability(db, hospital)
+    return created
+
+
+def set_availability(db, hospital: models.Hospital, available: int) -> None:
+    fleet = sorted(hospital.ambulances, key=lambda a: a.id)
+    free = [a for a in fleet if a.incident_id is None]
+
+    available = max(0, int(available))
+    if available > len(free):
+        raise CapacityError(
+            f"only {len(free)} of your {len(fleet)} ambulances are free, so at most "
+            f"{len(free)} can be marked available"
+        )
+
+    for index, amb in enumerate(free):
+        amb.status = "available" if index < available else "out_of_service"
+    db.flush()
+    sync_availability(db, hospital)
+
+
+def set_beds(db, hospital: models.Hospital, total: int | None = None) -> None:
+    if total is None:
+        return
+
+    total = max(0, int(total))
+    in_use = len(active_cases(hospital))
+    if total < in_use:
+        raise CapacityError(
+            f"cannot go below {in_use}: that many beds are taken by active cases"
+        )
+    hospital.beds_total = total
+    db.flush()
+    sync_beds(db, hospital)
+
+
+def suffix(hospital_code: str, index: int) -> str:
+    return f"{hospital_code.split('-')[-1]}{index}-{uuid.uuid4().hex[:4]}"
