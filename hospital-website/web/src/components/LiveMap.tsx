@@ -25,23 +25,51 @@ function toPairs(points: { lat: number; lon: number }[] | undefined): LatLng[] {
   return points.map((p) => [p.lat, p.lon] as LatLng);
 }
 
+function nearestVertex(line: LatLng[], at: LatLng) {
+  let best = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < line.length; i++) {
+    const dLat = line[i][0] - at[0];
+    const dLon = (line[i][1] - at[1]) * Math.cos((at[0] * Math.PI) / 180);
+    const distance = dLat * dLat + dLon * dLon;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = i;
+    }
+  }
+  return best;
+}
+
+// Draws only what is still ahead of the ambulance, so the travelled part of the
+// road does not stay behind it. Keeps a stub at the destination once there is
+// nothing left to travel, otherwise the route would blink out of existence.
+function trimTravelled(line: LatLng[], at: LatLng | null) {
+  if (!at || line.length < 2) return line;
+  const remaining = [at, ...line.slice(nearestVertex(line, at) + 1)];
+  return remaining.length >= 2 ? remaining : line.slice(-2);
+}
+
 function routeShape(
   incident: Incident,
   hospital: LatLng,
   crash: LatLng,
+  ambulance: LatLng | null,
 ): { line: LatLng[]; style: L.PolylineOptions; casing: L.PolylineOptions } {
   const color = SEVERITY[toneForSeverity(incident.severity)];
   const outbound = toPairs(incident.route?.outbound);
   const inbound = toPairs(incident.route?.inbound);
   const returning = incident.status === 'en_route_to_hospital' || incident.status === 'at_hospital';
 
-  const line = returning
-    ? inbound.length
-      ? inbound
-      : [crash, hospital]
-    : outbound.length
-      ? outbound
-      : [hospital, crash];
+  const line = trimTravelled(
+    returning
+      ? inbound.length
+        ? inbound
+        : [crash, hospital]
+      : outbound.length
+        ? outbound
+        : [hospital, crash],
+    ambulance,
+  );
 
   // Leaflet simplifies a polyline before drawing it, which is what turns a real
   // street-for-street route back into something that looks like a straight line.
@@ -239,7 +267,15 @@ export function LiveMap({
 
       if (incident.assignment.accepted) {
         const current = store.lines.get(incident.alert_id);
-        const shape = routeShape(incident, [hospital.lat, hospital.lon], [incident.location.lat, incident.location.lon]);
+        const crew = incident.assignment.ambulance_ids
+          .map((id) => ambulances.find((a) => a.ambulance_id === id))
+          .find((a): a is Ambulance => Boolean(a));
+        const shape = routeShape(
+          incident,
+          [hospital.lat, hospital.lon],
+          [incident.location.lat, incident.location.lon],
+          crew ? [crew.lat, crew.lon] : null,
+        );
         if (current) {
           current.casing.setLatLngs(shape.line);
           current.casing.setStyle(shape.casing);

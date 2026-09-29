@@ -175,6 +175,10 @@ Ambulance positions come from the `fleet_update` stream event, which the backend
 second, so the pins move on their own without polling. The ambulance follows the same polyline the
 map draws, so the pin and the route never disagree.
 
+The route is drawn as the part still ahead of the ambulance. As it drives, the line behind it is
+dropped, so what you see is what is left to travel rather than a road it has already covered. The
+line switches to the return leg, trimmed the same way, once the crew starts transporting.
+
 The map fits every layer once on first load and then leaves the view alone, because a dispatcher
 panning to a case should not have the viewport yanked back by the next position update. Selecting a
 case flies to its pin instead, and the crosshair button above the map flies back to everything the
