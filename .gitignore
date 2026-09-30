@@ -35,3 +35,15 @@ hospital-website/data/
 
 # Tool caches
 .vite/
+
+# AI model
+ai-model/.venv/
+ai-model/.ipynb_checkpoints/
+
+# Local datasets - never commit
+ai-model/data/*
+!ai-model/data/.gitkeep
+
+# Trained model files - never commit
+ai-model/models/*
+!ai-model/models/.gitkeep
