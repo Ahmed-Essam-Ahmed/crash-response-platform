@@ -35,3 +35,4 @@ hospital-website/data/
 
 # Tool caches
 .vite/
+vite.config.ts.timestamp-*

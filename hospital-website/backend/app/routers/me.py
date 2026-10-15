@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, serializers
 from ..db import get_db
-from ..deps import current_user, visible_hospital
+from ..deps import current_admin, current_dispatcher, current_user, visible_hospital
 from ..domain import lifecycle
 from ..realtime import realtime
 from ..services import dispatch, intake, offers
@@ -110,7 +110,7 @@ def my_case(alert_id: str, user: models.User = Depends(current_user), db: Sessio
 
 
 @router.post("/cases/{alert_id}/accept")
-async def accept_case(alert_id: str, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def accept_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
     incident = visible_hospital(db, alert_id, user.hospital)
     if incident.hospital_id is not None:
         if incident.hospital_id == user.hospital_id:
@@ -126,7 +126,7 @@ async def accept_case(alert_id: str, user: models.User = Depends(current_user), 
 
 
 @router.post("/cases/{alert_id}/decline")
-async def decline_case(alert_id: str, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def decline_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
     incident = visible_hospital(db, alert_id, user.hospital)
     try:
         await intake.decline_case(db, incident, user.hospital, user)
@@ -136,7 +136,7 @@ async def decline_case(alert_id: str, user: models.User = Depends(current_user),
 
 
 @router.post("/cases/{alert_id}/advance")
-async def advance_case(alert_id: str, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def advance_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
     incident = _owned_incident(db, user.hospital, alert_id, require_assignment=True)
     nxt = lifecycle.default_next(incident.status)
     if nxt is None:
@@ -154,7 +154,7 @@ async def advance_case(alert_id: str, user: models.User = Depends(current_user),
 
 
 @router.post("/cases/{alert_id}/cancel")
-async def cancel_case(alert_id: str, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def cancel_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
     incident = _owned_incident(db, user.hospital, alert_id, require_assignment=True)
     if not lifecycle.can_transition(incident.status, lifecycle.Status.CANCELLED):
         raise HTTPException(status_code=409, detail=f"cannot cancel from '{incident.status}'")
@@ -175,7 +175,7 @@ def my_fleet(user: models.User = Depends(current_user), db: Session = Depends(ge
 
 
 @router.patch("/fleet")
-async def update_fleet(payload: FleetUpdate, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def update_fleet(payload: FleetUpdate, user: models.User = Depends(current_admin), db: Session = Depends(get_db)):
     hospital = user.hospital
     try:
         if payload.ambulances_total is not None:
@@ -203,7 +203,7 @@ def my_beds(user: models.User = Depends(current_user), db: Session = Depends(get
 
 
 @router.patch("/beds")
-async def update_beds(payload: BedsUpdate, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+async def update_beds(payload: BedsUpdate, user: models.User = Depends(current_admin), db: Session = Depends(get_db)):
     hospital = user.hospital
     try:
         dispatch.set_beds(db, hospital, payload.beds_total)

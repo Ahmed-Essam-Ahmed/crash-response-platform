@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { Button } from './Button';
-import { ApiError, addStaff, fetchStaff, removeStaff } from '../api';
+import {
+  ApiError,
+  fetchInvitations,
+  fetchStaff,
+  inviteStaff,
+  removeStaff,
+  revokeInvitation,
+  type Invitation,
+} from '../api';
 import { clock } from '../lib/format';
 import type { Role, User } from '../types';
 
@@ -24,13 +32,13 @@ export function StaffSheet({
   const panel = useRef<HTMLElement | null>(null);
   const restore = useRef<HTMLElement | null>(null);
   const [staff, setStaff] = useState<User[]>([]);
-  const [fullName, setFullName] = useState('');
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('dispatcher');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [shareLink, setShareLink] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,7 +46,13 @@ export function StaffSheet({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not load your team');
     }
-  }, []);
+    if (!canManage) return;
+    try {
+      setInvitations(await fetchInvitations());
+    } catch {
+      setInvitations([]);
+    }
+  }, [canManage]);
 
   useEffect(() => {
     if (!open) return;
@@ -60,20 +74,43 @@ export function StaffSheet({
     };
   }, [open, onClose, load]);
 
-  const add = async (event: React.FormEvent) => {
+  const invite = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     setNotice(null);
+    setShareLink(null);
     try {
-      await addStaff({ email, password, full_name: fullName || undefined, role });
-      setFullName('');
+      const sent = await inviteStaff({ email: email.trim(), role });
       setEmail('');
-      setPassword('');
-      setNotice(`${email} can now sign in.`);
+      // Shown only when SMTP is unconfigured, so a developer is not left
+      // believing an email went out when it did not.
+      if (sent.mail_sent) {
+        setNotice(`Invitation sent to ${email.trim()}. They set their own password from the link.`);
+      } else {
+        setShareLink(sent.invite_link);
+        setNotice(
+          'Email is not configured on this server, so the invitation was not sent. Share this link directly.',
+        );
+      }
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not add this person');
+      setError(err instanceof ApiError ? err.message : 'Could not send this invitation');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelInvite = async (invitation: Invitation) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await revokeInvitation(invitation.id);
+      setNotice(`Invitation for ${invitation.email} withdrawn.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not withdraw this invitation');
     } finally {
       setBusy(false);
     }
@@ -166,21 +203,13 @@ export function StaffSheet({
               </ul>
 
               {canManage && (
-                <form onSubmit={add} className="space-y-3">
+                <form onSubmit={invite} className="space-y-3">
                   <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                    Add a colleague
+                    Invite a colleague
                   </h3>
-                  <label className="block">
-                    <span className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                      Name
-                    </span>
-                    <input
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Optional"
-                      className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-sm outline-none focus:border-[var(--primary)]"
-                    />
-                  </label>
+                  <p className="text-xs text-muted">
+                    They get an email, set their own password, and appear here once they accept.
+                  </p>
                   <label className="block">
                     <span className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
                       Work email
@@ -191,20 +220,6 @@ export function StaffSheet({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="colleague@hospital.org"
-                      className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-sm outline-none focus:border-[var(--primary)]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
-                      Temporary password
-                    </span>
-                    <input
-                      type="password"
-                      required
-                      minLength={8}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="At least 8 characters"
                       className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-sm outline-none focus:border-[var(--primary)]"
                     />
                   </label>
@@ -228,9 +243,56 @@ export function StaffSheet({
                   </div>
                   <p className="text-xs text-muted">{ROLE_HELP[role]}</p>
                   <Button type="submit" disabled={busy} className="w-full">
-                    {busy ? 'Working…' : 'Give access'}
+                    {busy ? 'Working…' : 'Send invitation'}
                   </Button>
                 </form>
+              )}
+
+              {canManage && invitations.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
+                    Invitations
+                  </h3>
+                  <ul className="divide-y divide-[var(--line)] overflow-hidden rounded-xl border border-line">
+                    {invitations.map((invitation) => (
+                      <li key={invitation.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm">{invitation.email}</p>
+                          <p className="truncate text-xs text-muted">
+                            {invitation.role} · {invitation.status}
+                            {invitation.status === 'pending'
+                              ? ` · expires ${clock(invitation.expires_at)}`
+                              : ''}
+                          </p>
+                        </div>
+                        {invitation.status === 'pending' && (
+                          <Button variant="ghost" disabled={busy} onClick={() => void cancelInvite(invitation)}>
+                            Withdraw
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {shareLink && (
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
+                      Invitation link
+                    </span>
+                    <input
+                      readOnly
+                      value={shareLink}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface-2 px-3.5 text-xs text-muted outline-none"
+                    />
+                  </label>
+                  <Button type="button" variant="ghost" className="w-full" onClick={() => void navigator.clipboard?.writeText(shareLink)}>
+                    Copy link
+                  </Button>
+                </div>
               )}
 
               {error && (

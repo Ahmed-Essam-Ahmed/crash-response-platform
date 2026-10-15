@@ -84,8 +84,149 @@ function readableError(body: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
-export const register = (body: Record<string, unknown>) =>
-  request<Session>('/auth/register', { method: 'POST', body: JSON.stringify(body) });
+export interface RegistryEntry {
+  id: number;
+  name: string;
+  name_ar: string | null;
+  governorate: string;
+  lat: number | null;
+  lon: number | null;
+  address: string | null;
+  has_location: boolean;
+  claimed: boolean;
+}
+
+export const searchRegistry = (params: { q?: string; governorate?: string; limit?: number } = {}) => {
+  const query = new URLSearchParams();
+  if (params.q) query.set('q', params.q);
+  if (params.governorate) query.set('governorate', params.governorate);
+  query.set('limit', String(params.limit ?? 20));
+  return request<{ query: string; results: RegistryEntry[]; governorates: string[] }>(
+    `/auth/registry?${query}`,
+  );
+};
+
+export const joinHospital = (body: {
+  registry_id: number;
+  admin: { email: string; password: string; full_name?: string };
+  trauma_level?: number;
+  ambulances_total?: number;
+  ambulances_available?: number;
+  beds_total?: number;
+  phone?: string;
+  emergency_phone?: string;
+  lat?: number;
+  lon?: number;
+}) => request<Session>('/auth/join', { method: 'POST', body: JSON.stringify(body) });
+
+export const submitClaim = (body: {
+  name: string;
+  governorate: string;
+  lat: number;
+  lon: number;
+  address?: string;
+  phone?: string;
+  claimed_by_name: string;
+  email: string;
+  evidence?: string;
+}) =>
+  request<{ status: string; message: string; registry_id?: number; claim_id?: number }>(
+    '/auth/claims',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+
+export interface PlatformOverview {
+  generated_at: string;
+  hospitals: (Hospital & { id: number; staff_count: number; registry_id: number | null })[];
+  ambulances: (Ambulance & { hospital_name: string; incident_alert_id: string | null })[];
+  incidents: (Incident & {
+    lat: number;
+    lon: number;
+    location_label: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    hospital_name: string | null;
+    hospital_id: number | null;
+    ambulance_ids: string[];
+  })[];
+  pending_claims: { id: number; name: string; governorate: string; lat: number | null; lon: number | null; address: string | null; phone: string | null; claimed_by_name: string; claimed_by_email: string; evidence: string | null; created_at: string | null }[];
+}
+
+const PLATFORM_KEY = 'crash-platform-review-key';
+
+export function getPlatformKey() {
+  return localStorage.getItem(PLATFORM_KEY) ?? '';
+}
+
+export function setPlatformKey(value: string) {
+  if (value) localStorage.setItem(PLATFORM_KEY, value);
+  else localStorage.removeItem(PLATFORM_KEY);
+}
+
+export async function platformRequest<T>(path: string, key: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set('X-Review-Key', key);
+  if (init.body) headers.set('Content-Type', 'application/json');
+  let response: Response;
+  try {
+    response = await fetch(`${API}${path}`, { ...init, headers });
+  } catch {
+    throw new ApiError(0, 'Cannot reach the response service');
+  }
+  const text = await response.text();
+  let body: any = null;
+  if (text) {
+    try { body = JSON.parse(text); } catch { body = null; }
+  }
+  if (!response.ok) {
+    const detail = typeof body?.detail === 'string' ? body.detail : `Request failed (${response.status})`;
+    throw new ApiError(response.status, detail);
+  }
+  return body as T;
+}
+
+export const fetchPlatformOverview = (key: string) =>
+  platformRequest<PlatformOverview>('/auth/review/overview', key);
+
+export const fetchPlatformIncident = (key: string, alertId: string) =>
+  platformRequest<Incident>(`/auth/review/incidents/${encodeURIComponent(alertId)}`, key);
+
+export const reviewHospitalClaim = (key: string, claimId: number, decision: 'approve' | 'reject') =>
+  platformRequest<{ status: string; claim_id: number; mail_sent: boolean }>(
+    `/auth/review/claims/${claimId}/${decision}`,
+    key,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+
+export const updatePlatformCapacity = (
+  key: string,
+  hospitalId: number,
+  body: { beds_total?: number; ambulances_total?: number; ambulances_available?: number },
+) => platformRequest<Hospital>(`/auth/review/hospitals/${hospitalId}/capacity`, key, {
+  method: 'PATCH', body: JSON.stringify(body),
+});
+
+export const interveneOnIncident = (key: string, alertId: string, action: 'advance' | 'cancel') =>
+  platformRequest<{ alert_id: string; status: string }>(
+    `/auth/review/incidents/${encodeURIComponent(alertId)}/${action}`,
+    key,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+
+export const previewInvitation = (token: string) =>
+  request<{
+    hospital: string;
+    address: string | null;
+    role: string;
+    email: string;
+    expires_at: string;
+  }>(`/auth/invitations/${encodeURIComponent(token)}`);
+
+export const acceptInvitation = (token: string, body: { password: string; full_name?: string }) =>
+  request<Session>(`/auth/invitations/${encodeURIComponent(token)}/accept`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 
 export const login = (email: string, password: string) =>
   request<Session>('/auth/login', {
@@ -99,8 +240,28 @@ export const fetchMe = () => request<{ user: User; hospital: Hospital }>('/auth/
 
 export const fetchStaff = () => request<User[]>('/auth/staff');
 
-export const addStaff = (body: { email: string; password: string; full_name?: string; role: string }) =>
-  request<User>('/auth/staff', { method: 'POST', body: JSON.stringify(body) });
+export interface Invitation {
+  id: number;
+  email: string;
+  role: string;
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+}
+
+export const fetchInvitations = () =>
+  request<(Invitation & { invite_link?: string })[]>('/auth/staff/invitations');
+
+export const inviteStaff = (body: { email: string; role: string }) =>
+  request<Invitation & { invite_link: string; mail_sent: boolean; mail_configured: boolean }>(
+    '/auth/staff/invitations',
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+
+export const revokeInvitation = (invitationId: number) =>
+  request<{ revoked: boolean }>(`/auth/staff/invitations/${invitationId}`, { method: 'DELETE' });
 
 export const removeStaff = (userId: number) =>
   request<{ removed: boolean }>(`/auth/staff/${userId}`, { method: 'DELETE' });

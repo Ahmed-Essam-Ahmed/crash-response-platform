@@ -19,6 +19,113 @@ class Base(DeclarativeBase):
     pass
 
 
+class RegistryHospital(Base):
+    """The curated list of hospitals that are allowed to hold a tenant.
+
+    A hospital account is not a self-declaration. It is a claim on a row in
+    here, which is what makes duplicates impossible: one registry entry can
+    back at most one hospital, enforced by the unique index on
+    `hospitals.registry_id`. Free text never creates a tenant, it only
+    creates a claim for review.
+    """
+
+    __tablename__ = "registry_hospitals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    name_normalized: Mapped[str] = mapped_column(String, index=True)
+    name_ar: Mapped[str | None] = mapped_column(String, nullable=True)
+    aliases: Mapped[str | None] = mapped_column(String, nullable=True)
+    governorate: Mapped[str] = mapped_column(String, index=True)
+
+    # Filled in by geocoding rather than typed in, because a wrong coordinate
+    # silently misroutes an ambulance.
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    address: Mapped[str | None] = mapped_column(String, nullable=True)
+    email_domain: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Where this entry came from, so a reviewer can tell curated from claimed.
+    source: Mapped[str] = mapped_column(String, default="seed")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # The same name inside one governorate is a duplicate. Across
+        # governorates it may well be two real hospitals, so the pair is the
+        # key rather than the name alone.
+        Index("ux_registry_name_governorate", "name_normalized", "governorate", unique=True),
+    )
+
+    @property
+    def has_location(self) -> bool:
+        return self.lat is not None and self.lon is not None
+
+
+class HospitalClaim(Base):
+    """A request to add a hospital that is not in the registry yet."""
+
+    __tablename__ = "hospital_claims"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    name_normalized: Mapped[str] = mapped_column(String, index=True)
+    governorate: Mapped[str] = mapped_column(String, index=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    address: Mapped[str | None] = mapped_column(String, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    claimed_by_email: Mapped[str] = mapped_column(String, index=True)
+    claimed_by_name: Mapped[str] = mapped_column(String)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Set once a reviewer turns the claim into a registry entry, which is what
+    # stops the same claim being approved twice.
+    registry_hospital_id: Mapped[int | None] = mapped_column(
+        ForeignKey("registry_hospitals.id"), nullable=True, index=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @property
+    def is_pending(self) -> bool:
+        return self.reviewed_at is None
+
+
+class StaffInvitation(Base):
+    """A pending grant of membership in one hospital to one address.
+
+    Possession of the link is deliberately not the proof. Accepting re-checks
+    on the server that a live unexpired invitation exists for the address
+    being registered, so a forwarded link only works for someone who also
+    receives mail at the invited address.
+    """
+
+    __tablename__ = "staff_invitations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), index=True)
+    email: Mapped[str] = mapped_column(String, index=True)
+    role: Mapped[str] = mapped_column(String, default="dispatcher")
+    token_hash: Mapped[str] = mapped_column(String, unique=True, index=True)
+    invited_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    hospital = relationship("Hospital")
+    invited_by = relationship("User")
+
+    @property
+    def is_open(self) -> bool:
+        return self.accepted_at is None and self.revoked_at is None
+
+
 class Hospital(Base):
     __tablename__ = "hospitals"
 
@@ -30,6 +137,9 @@ class Hospital(Base):
     address: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
     emergency_phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    registry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("registry_hospitals.id"), nullable=True, index=True, unique=True
+    )
     trauma_level: Mapped[int] = mapped_column(Integer, default=1)
     ambulances_total: Mapped[int] = mapped_column(Integer, default=0)
     ambulances_available: Mapped[int] = mapped_column(Integer, default=0)

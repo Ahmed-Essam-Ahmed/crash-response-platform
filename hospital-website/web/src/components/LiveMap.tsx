@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { toneForSeverity } from '../lib/status';
@@ -152,8 +152,11 @@ function escape(value: string | null | undefined) {
 
 const FRAME = { padding: [34, 34] as [number, number], maxZoom: 15, animate: true };
 
-function contentBounds(hospital: Hospital, incidents: Incident[], ambulances: Ambulance[]) {
-  const bounds = L.latLngBounds([[hospital.lat, hospital.lon]]);
+type NetworkHospital = Hospital & { id: number };
+type MapLayer = 'hospitals' | 'incidents' | 'ambulances';
+
+function contentBounds(hospitals: Hospital[], incidents: Incident[], ambulances: Ambulance[]) {
+  const bounds = L.latLngBounds(hospitals.map((item) => [item.lat, item.lon] as LatLng));
   for (const incident of incidents) {
     if (incident.status === 'closed' || incident.status === 'cancelled') continue;
     bounds.extend([incident.location.lat, incident.location.lon]);
@@ -169,43 +172,63 @@ function contentBounds(hospital: Hospital, incidents: Incident[], ambulances: Am
 
 function frameAll(
   instance: L.Map,
-  hospital: Hospital,
+  hospitals: Hospital[],
   incidents: Incident[],
   ambulances: Ambulance[],
 ) {
-  const bounds = contentBounds(hospital, incidents, ambulances);
+  const bounds = contentBounds(hospitals, incidents, ambulances);
   if (bounds.isValid()) instance.fitBounds(bounds, FRAME);
-  else instance.setView([hospital.lat, hospital.lon], 14, { animate: true });
+  else instance.setView([26.75, 29.6], 5.4, { animate: true });
 }
 
 function recenter(
   instance: L.Map,
-  hospital: Hospital,
+  hospitals: Hospital[],
   incidents: Incident[],
   ambulances: Ambulance[],
 ) {
-  const bounds = contentBounds(hospital, incidents, ambulances);
+  const bounds = contentBounds(hospitals, incidents, ambulances);
   if (bounds.isValid()) instance.flyToBounds(bounds, { ...FRAME, duration: 0.7 });
-  else instance.flyTo([hospital.lat, hospital.lon], 14, { duration: 0.7 });
+  else instance.flyTo([26.75, 29.6], 5.4, { duration: 0.7 });
 }
 
 export function LiveMap({
   hospital,
+  networkHospitals,
   ambulances,
   incidents,
   focus,
   onFocusCase,
+  onFocusHospital,
+  focusHospital,
+  networkView = false,
+  visibleLayers,
+  onToggleLayer,
 }: {
-  hospital: Hospital;
+  hospital?: Hospital;
+  networkHospitals?: NetworkHospital[];
   ambulances: Ambulance[];
   incidents: Incident[];
   focus?: string | null;
   onFocusCase?: (alertId: string) => void;
+  onFocusHospital?: (hospitalId: number) => void;
+  focusHospital?: number | null;
+  networkView?: boolean;
+  visibleLayers?: Set<MapLayer>;
+  onToggleLayer?: (layer: MapLayer) => void;
 }) {
+  const hospitalPoints = useMemo(
+    () => networkHospitals?.length ? networkHospitals : hospital ? [hospital] : [],
+    [networkHospitals, hospital],
+  );
+  const activeLayers = useMemo(
+    () => visibleLayers ?? new Set<MapLayer>(['hospitals', 'incidents', 'ambulances']),
+    [visibleLayers],
+  );
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
   const layers = useRef<{
-    hospital: L.Marker;
+    hospitals: Map<string, L.Marker>;
     crashes: Map<string, L.Marker>;
     lines: Map<string, { casing: L.Polyline; line: L.Polyline }>;
     fleet: Map<string, L.Marker>;
@@ -218,21 +241,13 @@ export function LiveMap({
     const instance = L.map(holder.current, {
       zoomControl: false,
       attributionControl: true,
-    }).setView([hospital.lat, hospital.lon], 13);
+    }).setView(networkView ? [26.75, 29.6] : [hospital?.lat ?? 30.0444, hospital?.lon ?? 31.2357], networkView ? 5.4 : 13);
 
     L.control.zoom({ position: 'bottomright' }).addTo(instance);
     L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(instance);
 
-    const anchor = L.marker([hospital.lat, hospital.lon], {
-      icon: HOSPITAL_ICON,
-      zIndexOffset: 600,
-      keyboard: false,
-    })
-      .addTo(instance)
-      .bindPopup(`<strong>${escape(hospital.name)}</strong><br/>Your hospital`);
-
     map.current = instance;
-    layers.current = { hospital: anchor, crashes: new Map(), lines: new Map(), fleet: new Map() };
+    layers.current = { hospitals: new Map(), crashes: new Map(), lines: new Map(), fleet: new Map() };
 
     const observer = new ResizeObserver(() => instance.invalidateSize());
     observer.observe(holder.current);
@@ -244,16 +259,36 @@ export function LiveMap({
       layers.current = null;
       fitted.current = false;
     };
-  }, [hospital.lat, hospital.lon, hospital.name]);
+  }, [hospital?.lat, hospital?.lon, hospital?.name, networkView]);
 
   useEffect(() => {
     const instance = map.current;
     const store = layers.current;
     if (!instance || !store) return;
 
+    const hospitalIds = new Set(activeLayers.has('hospitals') ? hospitalPoints.map((item) => item.hospital_id) : []);
+    for (const [id, marker] of store.hospitals) {
+      if (!hospitalIds.has(id)) { marker.remove(); store.hospitals.delete(id); }
+    }
+    for (const item of hospitalPoints) {
+      if (!hospitalIds.has(item.hospital_id)) continue;
+      const point: L.LatLngExpression = [item.lat, item.lon];
+      const existing = store.hospitals.get(item.hospital_id);
+      if (existing) existing.setLatLng(point);
+      else {
+        const marker = L.marker(point, { icon: HOSPITAL_ICON, zIndexOffset: 600, keyboard: false }).addTo(instance)
+          .bindPopup(`<strong>${escape(item.name)}</strong><br/>${networkView ? `${item.free_beds} beds free` : 'Your hospital'}`);
+        if (networkView && onFocusHospital && 'id' in item && typeof item.id === 'number') {
+          const networkId = item.id;
+          marker.on('click', () => onFocusHospital(networkId));
+        }
+        store.hospitals.set(item.hospital_id, marker);
+      }
+    }
+
     const live = incidents.filter((i) => i.status !== 'closed' && i.status !== 'cancelled');
-    const pinnedIds = new Set(live.filter((i) => showsCrashPin(i.status)).map((i) => i.alert_id));
-    const routedIds = new Set(live.filter((i) => showsRouteLine(i.status)).map((i) => i.alert_id));
+    const pinnedIds = new Set(activeLayers.has('incidents') ? live.filter((i) => showsCrashPin(i.status)).map((i) => i.alert_id) : []);
+    const routedIds = new Set(activeLayers.has('incidents') ? live.filter((i) => showsRouteLine(i.status)).map((i) => i.alert_id) : []);
 
     const crewByIncident = new Map<string, LatLng>();
     for (const incident of live) {
@@ -318,9 +353,11 @@ export function LiveMap({
       const unit = incident.assignment.ambulance_ids
         .map((id) => ambulances.find((a) => a.ambulance_id === id))
         .find((a): a is Ambulance => Boolean(a));
+      const routeHospital = networkHospitals?.find((item) => item.id === unit?.hospital_id) ?? hospital;
+      if (!routeHospital) continue;
       const shape = routeShape(
         incident,
-        [hospital.lat, hospital.lon],
+        [routeHospital.lat, routeHospital.lon],
         [incident.location.lat, incident.location.lon],
         unit ? [unit.lat, unit.lon] : null,
       );
@@ -338,7 +375,7 @@ export function LiveMap({
     }
 
     const seen = new Set<string>();
-    for (const amb of ambulances) {
+    for (const amb of activeLayers.has('ambulances') ? ambulances : []) {
       if (amb.status === 'out_of_service') continue;
       seen.add(amb.ambulance_id);
       const moving = MOVING.has(amb.status);
@@ -368,10 +405,11 @@ export function LiveMap({
     }
 
     if (!fitted.current) {
-      frameAll(instance, hospital, live, ambulances);
+      if (networkView) instance.setView([26.75, 29.6], 5.4, { animate: true });
+      else frameAll(instance, hospitalPoints, live, ambulances);
       fitted.current = true;
     }
-  }, [hospital, ambulances, incidents, onFocusCase]);
+  }, [hospital, hospitalPoints, networkHospitals, networkView, ambulances, incidents, onFocusCase, onFocusHospital, activeLayers]);
 
   useEffect(() => {
     const instance = map.current;
@@ -388,6 +426,38 @@ export function LiveMap({
     const unit = crewPositions.current.get(focus);
     if (unit) instance.flyTo(unit, Math.max(instance.getZoom(), 15), { duration: 0.6 });
   }, [focus]);
+
+  useEffect(() => {
+    if (focusHospital == null || !networkView) return;
+    const point = networkHospitals?.find((item) => item.id === focusHospital);
+    if (point && map.current) map.current.flyTo([point.lat, point.lon], Math.max(map.current.getZoom(), 10), { duration: 0.65 });
+  }, [focusHospital, networkHospitals, networkView]);
+
+  if (networkView) {
+    return (
+      <div className="adm-map-shell">
+        <div className="adm-map-grid" aria-hidden />
+        <div ref={holder} className="adm-map live-map" />
+        <div className="adm-map-tools">
+          <span className="adm-coordinate">EGYPT / NATIONAL VIEW</span>
+          <button type="button" className="adm-square" aria-label="Reset map view" onClick={() => networkView ? map.current?.flyTo([26.75, 29.6], 5.4, { duration: 0.7 }) : map.current && recenter(map.current, hospitalPoints, incidents, ambulances)}>
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+            </svg>
+          </button>
+        </div>
+        <div className="adm-layer-control">
+          <div className="adm-layer-heading">MAP LAYERS</div>
+          {([['hospitals', 'Hospitals', 'cyan'], ['incidents', 'Incidents', 'red'], ['ambulances', 'Ambulances', 'green']] as [MapLayer, string, string][]).map(([layer, label, tone]) => (
+            <button key={layer} className="adm-layer-row" onClick={() => onToggleLayer?.(layer)} aria-pressed={activeLayers.has(layer)}>
+              <span className={`adm-layer-icon ${tone}`}><i /></span><span>{label}</span>
+              <span className={`adm-toggle ${activeLayers.has(layer) ? 'on' : ''}`}><i /></span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card overflow-hidden">
@@ -412,7 +482,7 @@ export function LiveMap({
           type="button"
           onClick={() => {
             const instance = map.current;
-            if (instance) recenter(instance, hospital, incidents, ambulances);
+            if (instance) recenter(instance, hospitalPoints, incidents, ambulances);
           }}
           aria-label="Recentre the map on your hospital and current cases"
           className="press absolute top-3 right-3 z-[1050] grid size-11 place-items-center rounded-xl border border-line bg-[var(--surface)] text-ink shadow-soft hover:bg-[var(--surface-2)]"

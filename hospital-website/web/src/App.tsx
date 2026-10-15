@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './auth';
 import { ThemeProvider } from './theme';
 import { AuroraBackground } from './components/AuroraBackground';
 import { AuthScreen } from './components/AuthScreen';
-import { Console } from './components/Console';
+
+const Console = lazy(() => import('./components/Console').then((module) => ({ default: module.Console })));
 
 function Gate() {
   const { session, ready } = useAuth();
@@ -16,7 +18,11 @@ function Gate() {
     );
   }
 
-  return session ? <Console /> : <AuthScreen />;
+  return session ? (
+    <Suspense fallback={<div className="grid min-h-dvh place-items-center"><AuroraBackground /><span className="text-sm text-muted">Opening your console…</span></div>}>
+      <Console />
+    </Suspense>
+  ) : <AuthScreen />;
 }
 
 export default function App() {

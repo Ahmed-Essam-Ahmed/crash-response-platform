@@ -41,6 +41,22 @@ def current_admin(user: models.User = Depends(current_user)):
     return user
 
 
+def current_dispatcher(user: models.User = Depends(current_user)):
+    """Gate for anything that acts on a case.
+
+    Every mutating case endpoint used to accept any signed in user, so a
+    viewer account, which exists to be read only, could accept a case,
+    advance a patient through handover, and cancel a job. A viewer is a real
+    role people are given, so the server has to hold that line rather than
+    relying on the console hiding the buttons.
+    """
+    if not security.require_role(user.role, "dispatcher"):
+        raise HTTPException(
+            status_code=403, detail="this action needs a dispatcher or admin role"
+        )
+    return user
+
+
 def ingest_key(x_ingest_key: str = Header(default="")) -> None:
     if not x_ingest_key or x_ingest_key != INGEST_API_KEY:
         raise HTTPException(status_code=401, detail="invalid ingest key")

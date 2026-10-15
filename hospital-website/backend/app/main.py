@@ -10,7 +10,8 @@ from .config import CORS_ORIGINS, DATABASE_URL
 from .db import SessionLocal, engine
 from .realtime import realtime
 from .routers import auth, cases, geo, me, stream
-from .services import demo_source, escalation, progression, registry
+from .services import demo_source, escalation, hospital_registry, progression, registry
+from .services.hospital_seed import SEED_REGISTRY
 
 
 @asynccontextmanager
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
     migrations.apply(engine)
     db = SessionLocal()
     try:
+        hospital_registry.seed_registry(db, SEED_REGISTRY)
         registry.seed(db)
     finally:
         db.close()
@@ -36,9 +38,12 @@ app = FastAPI(
     title="Hospital Response Service",
     version="3.0.0",
     description=(
-        "Multi-tenant hospital console. Each hospital signs in and sees only its own "
-        "cases, fleet, and beds. Cases arrive from the app and AI model and are offered "
-        "to the nearest eligible hospital, escalating until one accepts."
+        "Multi-tenant hospital console. Each hospital claims one entry in a curated "
+        "registry, so a hospital cannot hold two accounts and cannot be created by "
+        "anyone who types a plausible name. Staff join by email invitation from their "
+        "hospital admin. Each hospital sees only its own cases, fleet, and beds. Cases "
+        "arrive from the app and AI model and are offered to the nearest eligible "
+        "hospital, escalating until one accepts."
     ),
     lifespan=lifespan,
 )
@@ -75,10 +80,18 @@ def index():
     return {
         "service": "hospital-response",
         "auth": {
-            "register": "POST /auth/register",
+            "registry_search": "GET /auth/registry",
+            "join": "POST /auth/join",
+            "claim_hospital": "POST /auth/claims",
+            "review_claims": "GET /auth/review/claims (X-Review-Key)",
+            "approve_claim": "POST /auth/review/claims/{id}/approve (X-Review-Key)",
+            "reject_claim": "POST /auth/review/claims/{id}/reject (X-Review-Key)",
+            "invitation_preview": "GET /auth/invitations/{token}",
+            "invitation_accept": "POST /auth/invitations/{token}/accept",
             "login": "POST /auth/login",
             "me": "GET /auth/me",
             "staff": "GET /auth/staff",
+            "invitations": "GET|POST /auth/staff/invitations",
         },
         "intake": {"report_case": "POST /cases (X-Ingest-Key)"},
         "console": {

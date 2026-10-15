@@ -33,3 +33,24 @@ ROAD_ROUTER_TIMEOUT = float(os.environ.get("ROAD_ROUTER_TIMEOUT", "5"))
 ROAD_ROUTER_ENABLED = os.environ.get("ROAD_ROUTER_ENABLED", "on") == "on"
 
 SEED_DEMO_LOGIN = os.environ.get("SEED_DEMO_LOGIN", "1") == "1"
+
+# Outbound mail. Unset means the console fallback, which prints the link to
+# stdout rather than sending anything.
+MAIL_FROM = os.environ.get("MAIL_FROM", "")
+MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "Crash Response Platform")
+MAIL_SMTP_HOST = os.environ.get("MAIL_SMTP_HOST", "")
+MAIL_SMTP_PORT = int(os.environ.get("MAIL_SMTP_PORT", "587"))
+MAIL_SMTP_USER = os.environ.get("MAIL_SMTP_USER", "")
+MAIL_SMTP_PASSWORD = os.environ.get("MAIL_SMTP_PASSWORD", "")
+MAIL_SMTP_STARTTLS = os.environ.get("MAIL_SMTP_STARTTLS", "1") == "1"
+MAIL_SMTP_TIMEOUT = float(os.environ.get("MAIL_SMTP_TIMEOUT", "10"))
+
+# Where the invitation link points, so the mail contains a URL the recipient
+# can actually open. Without it the link is only logged.
+PUBLIC_WEB_URL = os.environ.get("PUBLIC_WEB_URL", "http://localhost:5173")
+
+INVITATION_TTL_HOURS = int(os.environ.get("INVITATION_TTL_HOURS", "72"))
+
+# Registry claims are reviewed by a platform operator, not a hospital tenant.
+# Leave unset to keep the review endpoints disabled.
+REGISTRY_REVIEW_KEY = os.environ.get("REGISTRY_REVIEW_KEY", "")

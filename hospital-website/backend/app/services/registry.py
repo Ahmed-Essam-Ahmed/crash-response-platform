@@ -1,5 +1,6 @@
 from .. import models, security
 from ..config import SEED_DEMO_LOGIN
+from ..domain.naming import normalize
 
 DEMO_PASSWORD = "hospital123"
 
@@ -68,6 +69,7 @@ def seed(db) -> None:
         hospital = _match_demo_hospital(db, spec)
         if hospital is None:
             continue
+        _link_demo_registry(db, hospital, spec)
         if not hospital.ambulances:
             _seed_fleet(db, hospital, spec["ambulances"])
         if SEED_DEMO_LOGIN and not db.query(models.User).filter(
@@ -77,10 +79,55 @@ def seed(db) -> None:
 
 
 def _match_demo_hospital(db, spec):
+    """Find the demo hospital by its stable code only.
+
+    This used to fall back to matching on name, which meant that a real
+    hospital registering with the name "City General Hospital" would be
+    handed the demo tenant's fleet, beds, and admin account. Matching by name
+    is only safe where the name is known to be ours, which is the case for
+    the seeded demo admin below.
+    """
     hospital = db.query(models.Hospital).filter(models.Hospital.code == spec["code"]).first()
     if hospital is not None:
         return hospital
-    return db.query(models.Hospital).filter(models.Hospital.name == spec["name"]).first()
+
+    owner = (
+        db.query(models.User)
+        .filter(
+            models.User.email == spec["email"],
+            models.User.role == "admin",
+        )
+        .first()
+    )
+    return owner.hospital if owner is not None else None
+
+
+def _link_demo_registry(db, hospital, spec) -> None:
+    """Give the demo tenant a registry entry so the uniqueness rule applies.
+
+    Marked source="demo" so it is never offered as a joinable hospital in a
+    real deployment.
+    """
+    if hospital.registry_id is not None:
+        return
+    entry = db.query(models.RegistryHospital).filter(
+        models.RegistryHospital.name_normalized == normalize(spec["name"]),
+        models.RegistryHospital.governorate == "Cairo",
+    ).first()
+    if entry is None:
+        entry = models.RegistryHospital(
+            name=spec["name"],
+            name_normalized=normalize(spec["name"]),
+            governorate="Cairo",
+            lat=spec["lat"],
+            lon=spec["lon"],
+            address=f"{spec['name']}, Cairo",
+            source="demo",
+        )
+        db.add(entry)
+        db.flush()
+    hospital.registry_id = entry.id
+    db.commit()
 
 
 def _seed_fleet(db, hospital, count: int) -> None:

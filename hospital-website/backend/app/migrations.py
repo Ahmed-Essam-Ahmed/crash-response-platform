@@ -18,6 +18,7 @@ HOSPITAL_COLUMNS = {
     "address": "VARCHAR",
     "phone": "VARCHAR",
     "emergency_phone": "VARCHAR",
+    "registry_id": "INTEGER",
     "ambulances_total": "INTEGER NOT NULL DEFAULT 0",
     "ambulances_available": "INTEGER NOT NULL DEFAULT 0",
     "beds_total": "INTEGER NOT NULL DEFAULT 0",
@@ -47,15 +48,62 @@ AMBULANCE_COLUMNS = {
     "hospital_id": "INTEGER",
 }
 
+# Added to the model after the table was first created, so an existing
+# database has the table without these columns. The same trap the block above
+# exists for, on a newer table.
+REGISTRY_COLUMNS = {
+    "name_ar": "VARCHAR",
+    "aliases": "VARCHAR",
+    "address": "VARCHAR",
+    "email_domain": "VARCHAR",
+    "lat": "FLOAT",
+    "lon": "FLOAT",
+    "source": "VARCHAR NOT NULL DEFAULT 'seed'",
+    "is_active": "BOOLEAN NOT NULL DEFAULT 1",
+    "created_at": "DATETIME",
+}
+
+CLAIM_COLUMNS = {
+    "lat": "FLOAT",
+    "lon": "FLOAT",
+    "address": "VARCHAR",
+    "phone": "VARCHAR",
+    "evidence": "TEXT",
+    "registry_hospital_id": "INTEGER",
+    "reviewed_at": "DATETIME",
+    "review_note": "TEXT",
+    "created_at": "DATETIME",
+}
+
+INVITATION_COLUMNS = {
+    "invited_by_user_id": "INTEGER",
+    "accepted_at": "DATETIME",
+    "revoked_at": "DATETIME",
+    "created_at": "DATETIME",
+}
+
 NEW_INDEXES = (
     ("ix_ambulances_hospital_id", "ambulances", "hospital_id"),
     ("ix_incidents_hospital_id", "incidents", "hospital_id"),
+)
+
+# These carry the duplicate-hospitals guarantee, so they are unique rather
+# than merely present for query speed. Names match the ones the models
+# declare, so an index built here is the same one a fresh create_all makes.
+# Existing hospital rows are all NULL here, which a unique index permits
+# more than once, so this cannot fail on data that predates the column.
+NEW_UNIQUE_INDEXES = (
+    ("ix_hospitals_registry_id", "hospitals", "registry_id"),
+    ("ux_registry_name_governorate", "registry_hospitals", "name_normalized, governorate"),
 )
 
 TABLES = (
     ("hospitals", HOSPITAL_COLUMNS),
     ("incidents", INCIDENT_COLUMNS),
     ("ambulances", AMBULANCE_COLUMNS),
+    ("registry_hospitals", REGISTRY_COLUMNS),
+    ("hospital_claims", CLAIM_COLUMNS),
+    ("staff_invitations", INVITATION_COLUMNS),
 )
 
 LEGACY_OWNER = (("ambulances", "hospital_code"), ("incidents", "hospital_code"))
@@ -98,11 +146,19 @@ def apply(engine) -> list[str]:
 
     with engine.begin() as conn:
         indexed = _existing_indexes(conn)
+        tables = set(inspect(conn).get_table_names())
         for name, table, column in NEW_INDEXES:
-            if name in indexed or table not in set(inspect(conn).get_table_names()):
+            if name in indexed or table not in tables:
                 continue
             conn.execute(text(f'CREATE INDEX IF NOT EXISTS "{name}" ON "{table}" ({column})'))
             applied.append(f"index:{name}")
+        for name, table, columns in NEW_UNIQUE_INDEXES:
+            if name in indexed or table not in tables:
+                continue
+            conn.execute(
+                text(f'CREATE UNIQUE INDEX IF NOT EXISTS "{name}" ON "{table}" ({columns})')
+            )
+            applied.append(f"unique_index:{name}")
 
     return applied
 

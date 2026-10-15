@@ -7,16 +7,30 @@ interface AuthValue {
   session: Session | null;
   ready: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (payload: Record<string, unknown>) => Promise<void>;
+  joinHospital: (payload: JoinHospitalPayload) => Promise<void>;
+  acceptInvitation: (token: string, password: string, fullName?: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateHospital: (hospital: Hospital) => void;
+}
+
+export interface JoinHospitalPayload {
+  registry_id: number;
+  admin: { email: string; password: string; full_name?: string };
+  trauma_level?: number;
+  ambulances_total?: number;
+  beds_total?: number;
+  phone?: string;
+  emergency_phone?: string;
+  lat?: number;
+  lon?: number;
 }
 
 const AuthContext = createContext<AuthValue>({
   session: null,
   ready: false,
   signIn: async () => undefined,
-  signUp: async () => undefined,
+  joinHospital: async () => undefined,
+  acceptInvitation: async () => undefined,
   signOut: async () => undefined,
   updateHospital: () => undefined,
 });
@@ -61,9 +75,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [adopt],
   );
 
-  const signUp = useCallback(
-    async (payload: Record<string, unknown>) => {
-      adopt(await api.register(payload));
+  const joinHospital = useCallback(
+    async (payload: {
+      registry_id: number;
+      admin: { email: string; password: string; full_name?: string };
+      trauma_level?: number;
+      ambulances_total?: number;
+      beds_total?: number;
+      phone?: string;
+      emergency_phone?: string;
+      lat?: number;
+      lon?: number;
+    }) => {
+      adopt(await api.joinHospital(payload));
+    },
+    [adopt],
+  );
+
+  const acceptInvitation = useCallback(
+    async (token: string, password: string, fullName?: string) => {
+      adopt(await api.acceptInvitation(token, { password, full_name: fullName }));
     },
     [adopt],
   );
@@ -83,8 +114,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, ready, signIn, signUp, signOut, updateHospital }),
-    [session, ready, signIn, signUp, signOut, updateHospital],
+    () => ({
+      session,
+      ready,
+      signIn,
+      joinHospital,
+      acceptInvitation,
+      signOut,
+      updateHospital,
+    }),
+    [session, ready, signIn, joinHospital, acceptInvitation, signOut, updateHospital],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -165,4 +165,4 @@ export type StreamEvent =
   | { type: 'case_escalated'; alert_id: string; stage: number | string; at?: string }
   | { type: 'case_unclaimed'; alert_id: string }
   | { type: 'fleet_update'; alert_id: string; status: IncidentStatus; ambulances: Ambulance[] }
-  | { type: 'capacity_changed'; kind: 'fleet' | 'beds'; hospital: Hospital; at: string };
+  | { type: 'capacity_changed'; kind: 'fleet' | 'beds' | 'platform_admin'; hospital: Hospital; at: string };

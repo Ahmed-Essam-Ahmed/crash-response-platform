@@ -21,7 +21,7 @@ def load_incidents(db_path):
     con.row_factory = sqlite3.Row
     try:
         rows = con.execute(
-            "SELECT alert_id, trip_id, severity, lat, lon, status, hospital_code, destination, "
+            "SELECT alert_id, trip_id, severity, lat, lon, status, hospital_id, destination, "
             "eta_scene_seconds, eta_hospital_seconds, created_at, closed_at FROM incidents "
             "ORDER BY created_at DESC LIMIT 5000"
         ).fetchall()

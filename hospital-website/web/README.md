@@ -11,6 +11,11 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
+Platform administrators use the **Platform admin** option on the same sign-in
+screen as hospital staff. It uses the backend's `REGISTRY_REVIEW_KEY` to load
+the cross-hospital map, live incidents and fleet, adjust hospital capacity,
+intervene in assigned cases, and review hospital claims.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API` | `http://localhost:8000` | Hospital service base URL |
@@ -21,13 +26,21 @@ a socket to a different origin than the one it authenticates against.
 ## Getting in
 
 A hospital that is not registered yet starts on the sign-in screen and switches to registration.
-Registration is four short steps — hospital, place, capacity, first admin — because a place search
-over a network is the slowest part of onboarding, so it is not blocking the steps after it. The
-place field accepts a search or pasted coordinates, and the app works with no Google Maps key.
 
-The backend seeds three demo hospitals on an empty database. Their codes changed once during
-development, so the seeder matches a known hospital by name when the code does not match; otherwise
-an upgraded database would silently lose its demo logins.
+Registration does not accept a hospital name. It opens a searchable list of real Egyptian hospitals
+and asks the hospital to claim the one that is theirs, because a name typed by a stranger is not
+evidence of anything. The list is seeded with 44 hospitals across the 27 governorates, matches on
+Arabic names and on the names people actually use ("Kasr El Ainy" for Cairo University Hospital),
+and says which entries already have an account. A hospital that is not listed can request to be
+added, which creates a claim for a human to review and no tenant at all.
+
+Registration is then hospital, capacity, first admin. The location step only appears for a registry
+entry the geocoder could not confirm, because most entries already have a vetted point and
+inventing one for the rest would quietly misroute ambulances.
+
+The backend seeds three demo hospitals on an empty database. They match by code, or by the seeded
+demo admin's address when the code is from an older schema, so an upgraded database keeps its demo
+logins without any name-based match that a real hospital could collide with.
 
 ## Foundations
 
@@ -119,9 +132,14 @@ patch it on top for immediacy. Both paths are idempotent, so a reconnect cannot 
 | Primary action on a card | `POST /me/cases/{alert_id}/advance` |
 | Cancel this case | `POST /me/cases/{alert_id}/cancel` |
 | Details | `GET /me/cases/{alert_id}` (full timeline) |
-| Team | `GET/POST/DELETE /auth/staff` |
-| Capacity | `PATCH /me/beds`, `PATCH /me/fleet` |
-| Register | `POST /auth/register` |
+| Team | `GET/DELETE /auth/staff`, `GET/POST/DELETE /auth/staff/invitations` |
+| Capacity | `PATCH /me/beds`, `PATCH /me/fleet` (admin) |
+| Register | `GET /auth/registry`, `POST /auth/join`, `POST /auth/claims` |
+
+Roles are enforced by the server, and the console follows. A viewer sees cases and cannot act on
+them; only a dispatcher or admin can accept, advance, or cancel. Capacity and invitations need an
+admin. The UI hides what a role cannot do, but the API refuses it regardless, so the boundary does
+not depend on the console being loaded.
 
 A case is offered to the nearest hospital that can take it, so the board has three lists: cases
 offered to you, cases you are working, and what you have recently finished. Skeletons stand in
@@ -203,4 +221,3 @@ It reads the pixels rather than trusting the status code. A placeholder is one f
 little text in it; a real tile is hundreds of colours. This check exists because the map was
 originally pointed at CARTO, which passed every status-code check while showing nothing but
 "API key required" on the map.
-
