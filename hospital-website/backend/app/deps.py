@@ -25,7 +25,7 @@ def _user_for_token(db: Session, raw: str | None):
     )
     if record is None or record.expires_at <= datetime.utcnow() or not record.user.is_active:
         raise CREDENTIALS_ERROR
-    if record.user.hospital is None:
+    if record.user.hospital is None and record.user.role != "authority":
         raise CREDENTIALS_ERROR
     return record.user
 

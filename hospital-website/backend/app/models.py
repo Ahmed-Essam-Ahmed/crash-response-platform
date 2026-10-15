@@ -170,7 +170,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), index=True)
+    hospital_id: Mapped[int | None] = mapped_column(ForeignKey("hospitals.id"), nullable=True, index=True)
     email: Mapped[str] = mapped_column(String, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String)
     password_hash: Mapped[str] = mapped_column(String)

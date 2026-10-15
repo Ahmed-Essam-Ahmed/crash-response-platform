@@ -66,14 +66,21 @@ hospital's id, so no request can name a hospital it does not belong to.
 | `GET`  | `/health` | Liveness |
 | `WS`   | `/stream` | Real-time events, token in the query string |
 
-Role summary: `admin` manages the team and capacity, `dispatcher` acts on cases, `viewer` is
-read-only. The service enforces this on every write; the console hides what a role cannot do.
+Role summary: `authority` is national oversight (no hospital, analytics only), `admin` manages the
+team and capacity, `dispatcher` acts on cases, `viewer` is read-only. The service enforces this on
+every write; the console hides what a role cannot do.
 
 ### data-analytics/service (port 8001)
 
+Read-only, national. Authenticates a bearer token against the backend's `auth_tokens`/`users` and
+only serves the `authority` role. All `GET` query params below are optional filters, repeatable:
+`region`, `hospital`, `sex`, `age_group`, `destination`, `status`, `date_from`, `date_to`,
+`severity_min`, `severity_max`.
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/analytics/summary` | Totals, hotspots, by-hour, severity distribution |
+| `GET` | `/analytics/filters` | Available filter values (regions, hospitals, sexes, …) |
+| `GET` | `/analytics/summary` | Totals, hotspots, hourly/weekday/trend, severity, by-region, by-hospital, demographics, response times, distributions |
 | `GET` | `/analytics/incidents` | Raw incidents (read-only) |
 | `GET` | `/health` | Liveness + DB path |
 

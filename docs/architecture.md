@@ -17,7 +17,9 @@
    own board of offered cases, active cases, resources, and team; nothing is shared between
    hospitals.
 6. **Data Analytics** — read-only service over the incident store producing hotspot ("red zone")
-   maps, temporal risk patterns, and severity distributions, surfaced in a dedicated analytics site.
+   maps, temporal risk patterns, severity distributions, demographics, and hospital response times.
+   It has no UI of its own; the **authority dashboard** is embedded in the hospital website and shown
+   to users with the `authority` role (national oversight across all of Egypt).
 
 ## Team Ownership Mapping
 
@@ -27,7 +29,7 @@
 | 2 | mobile-app | Thin client; heavy lifting stays server-side |
 | 3 | ai-model | Pure Python: rules + ML + severity scoring |
 | 4, 5 | hospital-website | Full-stack: event store, WebSockets, workflow, console |
-| 6 | data-analytics | Separate read-only service + analytics site |
+| 6 | data-analytics | Separate read-only service; dashboard UI hosted in the hospital website (`authority` role) |
 
 ## Key Algorithms
 
@@ -88,4 +90,6 @@ Two consequences worth knowing:
 - The AI model is a library/in-process service consumed by the backend.
 - Simulation writes labeled scenarios consumed by mobile-app (playback) and ai-model (training),
   and drives the live world in-process inside the backend.
-- Data analytics runs its own read-only service (port 8001) over the backend's SQLite database.
+- Data analytics runs its own read-only service (port 8001) over the backend's SQLite database. It
+  validates the caller's bearer token against the backend's `auth_tokens`/`users` and only serves the
+  `authority` role. The dashboard UI ships inside the hospital website and calls this service directly.

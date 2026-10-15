@@ -1,33 +1,32 @@
-# Part 5 — Data Analytics
+# Part 5 — National Analytics (Authority View)
 
-Read-only analytics over the incident database owned by `hospital-website/backend`. Turns raw
-incidents into road-safety insight: red-zone hotspots, hourly patterns, and severity distributions.
-
-## Ownership
-
-Team member 5.
+A read-only analytics service for national oversight, integrated into the hospital website's authority dashboard. It aggregates incidents across all hospitals to produce red zones, demographics, response times, and temporal patterns.
 
 ## Contents
 
-- [`service/`](service) — dependency-free aggregation (stdlib `sqlite3`) exposed as a FastAPI
-  service on port 8001 (`/analytics/summary`, `/analytics/incidents`).
-- [`web/`](web) — React + Recharts analytics site on port 5174.
+- [`service/`](service) — FastAPI analytics service (port 8001). Reads the hospital database read-only (`hospital-website/data/hospital.db`).
+- The **dashboard UI** lives in [`hospital-website/web/src/components/authority/`](hospital-website/web/src/components/authority/) and is shown to users with role `authority`.
 
 ## Run
 
 ```bash
-# service (port 8001) — needs the backend to have written incidents.db
-cd service && pip install -r requirements.txt && uvicorn main:app --port 8001
-
-# site (port 5174)
-cd web && npm install && npm run dev
+# analytics service (port 8001)
+cd service
+pip install -r requirements.txt
+uvicorn main:app --port 8001
 ```
 
-The service reads `hospital-website/backend/incidents.db` (override with the `DB_PATH` env var).
-The site targets `http://localhost:8001` (override with `VITE_ANALYTICS_API`).
+The dashboard is embedded in the hospital website and authenticates with the same login/token as the hospital backend.
 
-## Roadmap
+## Features
 
-- DBSCAN clustering instead of fixed grid cells.
-- Response-time statistics (dispatch → arrival) once timestamps are recorded.
-- Time-of-day / weather risk modeling and forecasting.
+- Region filtering (derived from lat/lon)
+- Hotspots (red zones) by fixed grid
+- Hourly/weekday/trend breakdowns
+- Severity distribution
+- Demographics (age group, sex)
+- By region, by hospital, by destination/status
+- Response time statistics (accept, scene travel, hospital travel, total)
+- Authority-only access (role `authority`)
+
+The service validates bearer tokens against the hospital database (`auth_tokens` + `users`).

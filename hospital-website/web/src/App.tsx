@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './auth';
 import { ThemeProvider } from './theme';
 import { AuroraBackground } from './components/AuroraBackground';
 import { AuthScreen } from './components/AuthScreen';
+import { AuthorityDashboard } from './components/authority/AuthorityDashboard';
 
 const Console = lazy(() => import('./components/Console').then((module) => ({ default: module.Console })));
 
@@ -18,11 +19,13 @@ function Gate() {
     );
   }
 
-  return session ? (
+  if (!session) return <AuthScreen />;
+  if (session.user.role === 'authority') return <AuthorityDashboard />;
+  return (
     <Suspense fallback={<div className="grid min-h-dvh place-items-center"><AuroraBackground /><span className="text-sm text-muted">Opening your console…</span></div>}>
       <Console />
     </Suspense>
-  ) : <AuthScreen />;
+  );
 }
 
 export default function App() {

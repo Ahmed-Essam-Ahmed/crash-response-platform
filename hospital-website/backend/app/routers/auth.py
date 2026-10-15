@@ -636,18 +636,20 @@ def login(payload: Credentials, db: Session = Depends(get_db)):
 
     user.last_login_at = datetime.utcnow()
     session = _issue(db, user)
+    hospital = serializers.hospital_to_dict(user.hospital) if user.hospital is not None else None
     return {
         **session,
         "user": serializers.user_to_dict(user),
-        "hospital": serializers.hospital_to_dict(user.hospital),
+        "hospital": hospital,
     }
 
 
 @router.get("/me")
 def me(user: models.User = Depends(current_user)):
+    hospital = serializers.hospital_to_dict(user.hospital) if user.hospital is not None else None
     return {
         "user": serializers.user_to_dict(user),
-        "hospital": serializers.hospital_to_dict(user.hospital),
+        "hospital": hospital,
     }
 
 

@@ -23,6 +23,11 @@ upstream (simulation / AI)  ──POST /incidents──▶  hospital-website  �
 The service is the integration boundary: it takes a crash report in and emits incident status,
 fleet movement, and hospital load out.
 
+The same web app also hosts the **national authority dashboard** (Part 5). Signing in with the
+`authority` role opens the analytics view (red zones, demographics, response times) instead of a
+single-hospital console; it calls the read-only analytics service on port 8001 with the same token.
+Authority users have no hospital, so the backend leaves their `hospital` null.
+
 ## Run
 
 ```bash
@@ -52,6 +57,9 @@ python scripts/seed_demo_cases.py --count 2  # just the two nearest
 
 The cases land as live offers, so signing in as `riverside@demo.hospital` and accepting one shows
 the ambulance moving on the map towards that crash.
+
+The backend also seeds a national-authority account — `authority@egypt.gov` / `authority123` — which
+signs in to the embedded analytics dashboard rather than a hospital console.
 
 ## Tests
 
