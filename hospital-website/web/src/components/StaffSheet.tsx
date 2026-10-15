@@ -6,9 +6,10 @@ import { clock } from '../lib/format';
 import type { Role, User } from '../types';
 
 const ROLE_HELP: Record<Role, string> = {
+  authority: 'National view',
   admin: 'Full control, including the team and capacity',
   dispatcher: 'Accept cases and move them along',
-  viewer: 'Read-only, can follow cases',
+  viewer: 'Can see cases but cannot act',
 };
 
 export function StaffSheet({

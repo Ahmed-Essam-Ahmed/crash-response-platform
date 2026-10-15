@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 
 from .config import PASSWORD_ITERATIONS, TOKEN_TTL_HOURS
 
-ROLES = ("admin", "dispatcher", "viewer")
-ROLE_RANK = {"admin": 3, "dispatcher": 2, "viewer": 1}
+ROLES = ("authority", "admin", "dispatcher", "viewer")
+ROLE_RANK = {"authority": 4, "admin": 3, "dispatcher": 2, "viewer": 1}
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:

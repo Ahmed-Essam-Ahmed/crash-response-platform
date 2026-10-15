@@ -2,6 +2,7 @@ from .. import models, security
 from ..config import SEED_DEMO_LOGIN
 
 DEMO_PASSWORD = "hospital123"
+AUTHORITY_PASSWORD = "authority123"
 
 HOSPITALS = [
     {
@@ -38,6 +39,7 @@ HOSPITALS = [
 
 
 def seed(db) -> None:
+    _seed_authority(db)
     if db.query(models.Hospital).count() == 0:
         for spec in HOSPITALS:
             db.add(
@@ -74,6 +76,22 @@ def seed(db) -> None:
             models.User.email == spec["email"]
         ).first():
             _seed_admin(db, hospital, spec["email"])
+
+
+def _seed_authority(db):
+    if not db.query(models.User).filter(models.User.email == "authority@egypt.gov").first():
+        salt, digest = security.hash_password(AUTHORITY_PASSWORD)
+        db.add(
+            models.User(
+                hospital_id=None,
+                email="authority@egypt.gov",
+                full_name="National Road Safety Authority",
+                password_hash=digest,
+                password_salt=salt,
+                role="authority",
+            )
+        )
+        db.commit()
 
 
 def _match_demo_hospital(db, spec):

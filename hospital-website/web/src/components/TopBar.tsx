@@ -24,7 +24,7 @@ export function TopBar({
   onStaff,
   onSignOut,
 }: {
-  hospital: Hospital;
+  hospital: Hospital | null;
   user: User;
   connected: boolean;
   onStaff: () => void;
@@ -43,7 +43,7 @@ export function TopBar({
 
         <div className="min-w-0 leading-tight">
           <p className="truncate text-[length:var(--text-base)] font-semibold tracking-tight">
-            {hospital.name}
+            {hospital?.name ?? 'National Authority'}
           </p>
           <p className="tnum truncate text-xs text-muted">
             Signed in as {user.full_name || user.email} · {clock}
@@ -88,9 +88,11 @@ export function TopBar({
             </motion.span>
           </button>
 
-          <Button variant="ghost" onClick={onStaff}>
-            Team
-          </Button>
+          {user.role !== 'authority' && (
+            <Button variant="ghost" onClick={onStaff}>
+              Team
+            </Button>
+          )}
 
           <Button variant="ghost" onClick={onSignOut}>
             Sign out

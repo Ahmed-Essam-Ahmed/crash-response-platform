@@ -3,6 +3,7 @@ import { ThemeProvider } from './theme';
 import { AuroraBackground } from './components/AuroraBackground';
 import { AuthScreen } from './components/AuthScreen';
 import { Console } from './components/Console';
+import { AuthorityDashboard } from './components/authority/AuthorityDashboard';
 
 function Gate() {
   const { session, ready } = useAuth();
@@ -16,7 +17,9 @@ function Gate() {
     );
   }
 
-  return session ? <Console /> : <AuthScreen />;
+  if (!session) return <AuthScreen />;
+  if (session.user.role === 'authority') return <AuthorityDashboard />;
+  return <Console />;
 }
 
 export default function App() {

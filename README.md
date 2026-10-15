@@ -14,7 +14,7 @@ replaces physical sensors.
 | 2 | [`hospital-website/`](hospital-website) | **Full-stack** response end: receives crash reports, runs the incident lifecycle (triage → dispatch → hospital → handover), and serves a live operator console | FastAPI, WebSockets, React, Canvas |
 | 3 | [`ai-model/`](ai-model) | Crash detection (threshold rules + ML) and AI severity rating (0–10) | Python, scikit-learn |
 | 4 | [`simulation/`](simulation) | Generates phone sensor streams, trips, and crash signatures — plus a live **world simulator** (grid city, driving vehicles, scheduled crashes) | Python |
-| 5 | [`data-analytics/`](data-analytics) | Read-only analytics service + website: red-zone hotspots, time patterns, severity distribution | FastAPI, React, Recharts |
+| 5 | [`data-analytics/`](data-analytics) | Read-only national analytics service + **authority dashboard** (embedded in the hospital website): red-zone hotspots, time patterns, severity distribution, demographics, response times | FastAPI, React, SVG charts |
 
 ## Run the live demo
 
@@ -29,18 +29,27 @@ cd hospital-website/web && npm install && npm run dev      # http://localhost:51
 # terminal 3 — analytics service
 cd data-analytics/service && pip install -r requirements.txt
 uvicorn main:app --port 8001
-
-# terminal 4 — analytics site
-cd data-analytics/web && npm install && npm run dev        # http://localhost:5174
 ```
+
+The analytics dashboard is **not a separate site** — it is embedded in the hospital website
+(`http://localhost:5173`), reached by signing in with the national-authority account:
 
 `DEMO_SOURCE=on` makes the hospital service generate its own crash reports every 12 seconds, so the
 part can be demoed standalone. Drop it once the upstream part feeds it.
 
 The console shows a live map: a crash is reported, triaged, an ambulance is assigned and drives to
 the scene, the patient is transported, and the incident closes — with the full timeline on the
-right and hospital beds filling in real time. The analytics site builds red zones and hourly
+right and hospital beds filling in real time. The authority dashboard builds red zones and hourly
 patterns from the incidents the hospital service records.
+
+### Authority account
+
+| Email | Password | Role |
+|-------|----------|------|
+| `authority@egypt.gov` | `authority123` | `authority` (national, all of Egypt) |
+
+Signing in with this account opens the national analytics dashboard instead of a single-hospital
+console. The dashboard calls the analytics service (port 8001) with the same bearer token.
 
 ## System Flow
 
@@ -66,7 +75,7 @@ Each part has its own README with setup and run instructions. Suggested start or
 1. `simulation` — generate a labeled scenario into `data/`
 2. `ai-model` — run rules/severity on a generated window
 3. `hospital-website` — run it standalone with `DEMO_SOURCE=on`, then swap in real upstream input
-4. `data-analytics` — build hotspot/pattern analytics
+4. `data-analytics` — run the analytics service, then sign in as the national authority to view hotspot/pattern analytics
 5. `mobile-app` — play back a trip and trigger the flow end-to-end
 
 ## Demo Scenario

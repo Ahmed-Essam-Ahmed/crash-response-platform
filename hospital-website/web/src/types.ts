@@ -9,7 +9,7 @@ export type IncidentStatus =
   | 'closed'
   | 'cancelled';
 
-export type Role = 'admin' | 'dispatcher' | 'viewer';
+export type Role = 'authority' | 'admin' | 'dispatcher' | 'viewer';
 
 export interface IncidentEvent {
   status: IncidentStatus;
@@ -146,7 +146,7 @@ export interface Session {
   token: string;
   expires_at: string;
   user: User;
-  hospital: Hospital;
+  hospital: Hospital | null;
 }
 
 export interface GeoResult {
