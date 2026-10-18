@@ -19,6 +19,17 @@ function boundsFor(hotspots: any[]) {
   return { minLat, maxLat, minLon, maxLon, spacing: Math.max((maxLon - minLon) / 8, 0.002) };
 }
 
+const SCALE: { min: number; color: string; label: string }[] = [
+  { min: 8, color: '#ff3b3b', label: 'Critical ≥8' },
+  { min: 7, color: '#ff7a1a', label: 'Severe ≥7' },
+  { min: 5, color: '#ffb020', label: 'Moderate ≥5' },
+  { min: 0, color: '#4fbf86', label: 'Mild' },
+];
+
+function colorFor(severity: number) {
+  return SCALE.find((s) => severity >= s.min)!.color;
+}
+
 export function HeatMap({ hotspots }: { hotspots: any[] }) {
   const world = useMemo(() => boundsFor(hotspots), [hotspots]);
   const toXY = useCallback(
@@ -46,11 +57,14 @@ export function HeatMap({ hotspots }: { hotspots: any[] }) {
       const w = canvas.width;
       const h = canvas.height;
 
-      ctx.fillStyle = '#0c1a26';
+      const bg = ctx.createLinearGradient(0, 0, w, h);
+      bg.addColorStop(0, '#0b1a25');
+      bg.addColorStop(1, '#0e2430');
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
 
-      ctx.strokeStyle = '#1d3a4f';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(93, 156, 184, 0.18)';
+      ctx.lineWidth = 1;
       const cols = Math.round((world.maxLon - world.minLon) / world.spacing);
       const rows = Math.round((world.maxLat - world.minLat) / world.spacing);
       for (let c = 0; c <= cols; c++) {
@@ -68,18 +82,35 @@ export function HeatMap({ hotspots }: { hotspots: any[] }) {
         ctx.stroke();
       }
 
+      const maxCount = Math.max(1, ...hotspots.map((c) => c.count));
       for (const cell of hotspots) {
         const { x, y } = toXY(cell.lat, cell.lon, w, h);
-        const hot = cell.max_severity >= 7;
-        const alpha = Math.min(0.35 + cell.count * 0.15, 0.9);
-        ctx.fillStyle = hot ? `rgba(255,61,61,${alpha})` : `rgba(255,152,0,${alpha})`;
+        const color = colorFor(cell.max_severity);
+        const r = 12 + (cell.count / maxCount) * 20;
+
+        const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 1.8);
+        glow.addColorStop(0, color);
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 0.32;
+        ctx.fillStyle = glow;
         ctx.beginPath();
-        ctx.arc(x, y, 10 + cell.count * 4, 0, Math.PI * 2);
+        ctx.arc(x, y, r * 1.8, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 1;
         ctx.fillStyle = '#ffffff';
-        ctx.font = `bold ${10 + cell.count}px Helvetica`;
-        ctx.fillText(String(cell.count), x - 3, y + 3);
+        ctx.font = `600 ${Math.max(11, r * 0.85)}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(cell.count), x, y + 0.5);
       }
+      ctx.globalAlpha = 1;
     };
 
     draw();
@@ -89,8 +120,19 @@ export function HeatMap({ hotspots }: { hotspots: any[] }) {
   }, [hotspots, world, toXY]);
 
   return (
-    <div ref={wrapRef} style={{ width: '100%', height: 320 }}>
-      <canvas ref={canvasRef} style={{ width: '100%', height: 320, display: 'block' }} />
+    <div className="overflow-hidden rounded-[0.9rem] border border-line">
+      <div ref={wrapRef} style={{ width: '100%', height: 320 }}>
+        <canvas ref={canvasRef} style={{ width: '100%', height: 320, display: 'block' }} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-[#0b1a25] px-3 py-2">
+        {SCALE.map((s) => (
+          <span key={s.label} className="inline-flex items-center gap-1.5 text-[11px] text-white/70">
+            <span className="size-2.5 rounded-full" style={{ background: s.color }} />
+            {s.label}
+          </span>
+        ))}
+        <span className="ml-auto text-[11px] text-white/50">bubble size ∝ incidents</span>
+      </div>
     </div>
   );
 }

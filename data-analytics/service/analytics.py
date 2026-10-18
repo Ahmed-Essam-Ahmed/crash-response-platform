@@ -98,6 +98,28 @@ def _by_hour(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{"hour": h, "count": counts[h]} for h in range(24)]
 
 
+def _by_age(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    counts: Dict[int, int] = defaultdict(int)
+    for inc in incidents:
+        age = inc.get("age")
+        if age in (None, ""):
+            continue
+        try:
+            counts[int(age)] += 1
+        except (TypeError, ValueError):
+            continue
+    return [{"age": age, "count": counts[age]} for age in sorted(counts)]
+
+
+def _by_year(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    counts: Dict[int, int] = defaultdict(int)
+    for inc in incidents:
+        dt = _parse_dt(inc.get("created_at"))
+        if dt:
+            counts[dt.year] += 1
+    return [{"year": year, "count": counts[year]} for year in sorted(counts)]
+
+
 def _by_weekday(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     counts = [0] * 7
     for inc in incidents:
@@ -294,6 +316,8 @@ def aggregate(incidents: List[Dict[str, Any]], f: Filters) -> Dict[str, Any]:
         "hotspots": _hotspots(data),
         "by_hour": _by_hour(data),
         "by_weekday": _by_weekday(data),
+        "by_age": _by_age(data),
+        "by_year": _by_year(data),
         "trend": _trend(data),
         "severity_distribution": _severity_distribution(data),
         "by_region": _by_region(data),

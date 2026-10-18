@@ -120,6 +120,8 @@ export interface AnalyticsSummary {
   hotspots: Hotspot[];
   by_hour: { hour: number; count: number }[];
   by_weekday: { day: string; count: number }[];
+  by_age: { age: number; count: number }[];
+  by_year: { year: number; count: number }[];
   trend: { date: string; count: number; avg_severity: number }[];
   severity_distribution: { bucket: string; count: number }[];
   by_region: { region: string; count: number; avg_severity: number; severe: number }[];

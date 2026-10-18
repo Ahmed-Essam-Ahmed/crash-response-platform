@@ -25,10 +25,15 @@ def parse_filters(params: dict) -> Filters:
         if not vals:
             return []
         if isinstance(vals, str):
-            return [v.strip() for v in vals.split(",") if v.strip()]
-        if isinstance(vals, Iterable) and not isinstance(vals, (bytes, str)):
-            return [str(v).strip() for v in vals if str(v).strip()]
-        return []
+            raw = [vals]
+        elif isinstance(vals, Iterable) and not isinstance(vals, (bytes, str)):
+            raw = [str(v) for v in vals]
+        else:
+            raw = []
+        out: list[str] = []
+        for item in raw:
+            out.extend(part.strip() for part in item.split(",") if part.strip())
+        return out
 
     def _float(key: str, default: float) -> float:
         try:
