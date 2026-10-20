@@ -8,7 +8,7 @@ import { DonutChart } from './DonutChart';
 import { FilterBar } from './FilterBar';
 import { Gauge } from './Gauge';
 import { HBarChart } from './HBarChart';
-import { HeatMap } from './HeatMap';
+import { RedZoneMap } from './RedZoneMap';
 import { LineChart } from './LineChart';
 import { ScatterChart } from './ScatterChart';
 import { Icons, Panel, StatCard } from './DashboardUI';
@@ -101,8 +101,8 @@ export function AuthorityDashboard() {
         </section>
 
         <section className="grid gap-5 lg:grid-cols-2">
-          <Panel title="Red Zones — Accident Hotspots" hint="red = severity ≥ 7 · numbers = incidents per cell">
-            <HeatMap hotspots={summary?.hotspots ?? []} />
+          <Panel title="Red Zones — Accident Hotspots" hint="color = peak severity · size and number = incidents">
+            <RedZoneMap hotspots={summary?.hotspots ?? []} />
           </Panel>
           <Panel title="Incident Trend" hint="incidents per day">
             <LineChart
