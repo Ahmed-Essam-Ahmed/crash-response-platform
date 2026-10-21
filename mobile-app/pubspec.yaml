@@ -1,0 +1,39 @@
+name: safedrive
+description: SafeDrive — Smartphone-Based Intelligent Vehicle Accident Detection and Emergency Response System.
+publish_to: 'none'
+version: 0.2.0+2
+
+environment:
+  sdk: ^3.5.0
+
+# Locked stack (file 02, decision 5): flutter_bloc, sensors_plus, geolocator,
+# drift, fl_chart (+ Firebase when the project exists — docs/firebase-setup.md).
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.7
+  geolocator: ^14.0.0
+  fl_chart: ^1.0.0
+  flutter_map: ^8.0.0
+  latlong2: ^0.9.1
+  url_launcher: ^6.3.1
+  audioplayers: ^6.1.0
+  sensors_plus: ^6.1.1
+  http: ^1.2.2
+  drift: ^2.22.0
+  drift_flutter: ^0.2.4
+  flutter_secure_storage: ^9.2.2
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sounds/
