@@ -1,42 +1,58 @@
-# Part 1 — Mobile Application
+# SafeDrive — Hazem's part (Member B: Product, Emergency & Backend)
 
-The phone-side client that mimics Apple's Crash Detection. It plays back sensor streams generated
-by `simulation`, does a preliminary on-device check, and on detection builds the emergency payload
-(geolocation, severity, medical profile) and submits it to the backend.
+## First run in VS Code (Windows)
 
-## Ownership
+Open **VS Code → File → Open Folder → `D:\grad project\safedrive`**, then open the
+terminal (**Ctrl + `**) and run these one at a time:
 
-Team member 1.
-
-## Responsibilities
-
-- Playback of a simulated "drive" (reads a `simulation` scenario JSON).
-- Live speed/g-force indicator during the drive.
-- On-impact: emergency state with countdown + severity display.
-- Submits `crash_detected` payload to backend `POST /alerts`.
-- Shows simulated contact-notification confirmation.
-
-## Run
-
-```bash
-npm install
-npx react-native run-ios    # or: run-android
+```powershell
+flutter --version
+flutter create . --project-name safedrive --org com.safedrive --platforms android,ios
+flutter pub get
+flutter analyze
+flutter test
+flutter run
 ```
 
-Place a generated scenario at `src/assets/scenario.json` (export from `simulation`), or load it
-from a URL served by the backend.
+- `flutter create .` only **adds** the missing `android/` and `ios/` folders. It
+  does not overwrite `lib/`, `test/` or `pubspec.yaml`.
+- `flutter run` needs a phone (USB debugging on) or an Android emulator. Pick
+  the device from the bottom-right of VS Code, or press **F5**.
+- iOS builds need a Mac. The `ios/` folder is still created so the project
+  stays cross-platform.
 
-## Layout
+## What runs today
+
+Everything uses **mocks**, so the app runs with no Firebase and no real
+sensors yet.
+
+| Screen | Status |
+|---|---|
+| Splash → Onboarding (6 pages: what it does, detection, permissions, countdown, contacts, privacy) | ✅ |
+| Home dashboard (System / GPS / Motion / Contacts / Detection ON-OFF, manual start) | ✅ |
+| Driving Mode (speed + status, opens automatically when driving starts) | ✅ (fake GPS speed) |
+| Emergency contacts (max 5, add/edit/delete, drag to reorder priority) | ✅ |
+| Settings (countdown 10–60 s, confidence threshold, detection on/off) | ✅ |
+
+## Folder layout (file 02 §2)
 
 ```
-App.tsx                      # navigation + app shell
-src/
-  types.ts                   # shared payload types (mirror contracts)
-  services/api.ts            # backend client (POST /alerts)
-  screens/
-    DriveScreen.tsx          # playback UI + live g-meter
-    EmergencyScreen.tsx      # post-detection alert state
-assets/                      # bundled scenarios
+lib/
+  domain/          ← SHARED CONTRACT with Ahmed. Don't edit alone.
+  application/     ← app_services.dart (wiring), later EmergencyController impl
+  services/
+    mocks/         ← fake DrivingDetector + DetectionEngine (until Ahmed's land)
+    storage/       ← contacts + settings repos (in-memory → drift/Firestore)
+  presentation/    ← screens + cubits (BLoC)
+docs/contract-draft-for-ahmed.md   ← choices to confirm in Week 1
 ```
 
-Contract payloads mirror [`contracts/README.md`](../contracts/README.md).
+When Ahmed's real `DrivingDetector` / `DetectionEngine` are ready, only
+`lib/application/app_services.dart` changes.
+
+## Next steps (from 05-tasks-hazem)
+
+1. Review `lib/domain/` with Ahmed (see `docs/contract-draft-for-ahmed.md`) and commit it together.
+2. **Step 3**: Firebase project (`flutterfire configure`): Auth, Firestore schema, rules, FCM.
+3. **Step 5**: permission flows (motion, location "Always", notifications) on Android + iOS.
+4. **Step 6**: `EventRepository` with drift + Firestore sync.

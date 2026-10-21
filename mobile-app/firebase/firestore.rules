@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// SafeDrive — every document is private to its owner (file 02 §7):
+// request.auth.uid must equal the {uid} in the path. Nothing is public.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid)
+        // settings sanity: countdown 10–60 s, threshold 50–95 %
+        && (!('settings' in request.resource.data)
+            || (request.resource.data.settings.countdownSec is int
+                && request.resource.data.settings.countdownSec >= 10
+                && request.resource.data.settings.countdownSec <= 60));
+
+      match /emergencyContacts/{contactId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 40
+          && request.resource.data.phone.matches('^\\+?[0-9]{7,15}$')
+          && request.resource.data.priority is int
+          && request.resource.data.priority >= 1
+          && request.resource.data.priority <= 5;
+      }
+
+      match /sessions/{sessionId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /accidents/{accidentId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.confidence is number
+          && request.resource.data.confidence >= 0
+          && request.resource.data.confidence <= 100
+          && request.resource.data.status in ['cancelled', 'dispatched'];
+      }
+    }
+
+    // Sensor windows are owned through the accident that references them.
+    match /sensorWindows/{windowId} {
+      allow read, write: if signedIn() && resource == null
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+    }
+  }
+}
