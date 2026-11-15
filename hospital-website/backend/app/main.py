@@ -21,6 +21,8 @@ async def lifespan(app: FastAPI):
     try:
         hospital_registry.seed_registry(db, SEED_REGISTRY)
         registry.seed(db)
+        if demo_source.enabled():
+            demo_source.seed_hubs(db)
     finally:
         db.close()
 

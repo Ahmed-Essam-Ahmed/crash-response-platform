@@ -1,24 +1,46 @@
-import { motion, useReducedMotion } from 'motion/react';
-import type { ComponentProps, ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Spinner } from './ui/Spinner';
 
-type Props = Omit<ComponentProps<typeof motion.button>, 'children' | 'className'> & {
-  children: ReactNode;
-  variant?: 'primary' | 'ghost' | 'danger';
-  className?: string;
+type Variant = 'primary' | 'signal' | 'soft' | 'ghost' | 'danger' | 'secondary';
+type Size = 'sm' | 'md' | 'lg';
+
+const VARIANT_CLASS: Record<Variant, string> = {
+  primary: 'btn-primary',
+  signal: 'btn-signal',
+  soft: 'btn-soft',
+  ghost: 'btn-ghost',
+  secondary: 'btn-ghost',
+  danger: 'btn-danger',
 };
 
-export function Button({ children, variant = 'primary', className = '', ...rest }: Props) {
-  const reduce = useReducedMotion();
+const SIZE_CLASS: Record<Size, string> = {
+  sm: 'min-h-9 px-3 text-xs',
+  md: '',
+  lg: 'min-h-12 px-5 text-base',
+};
 
+export const Button = forwardRef<HTMLButtonElement, {
+  children?: ReactNode;
+  variant?: Variant;
+  size?: Size;
+  loading?: boolean;
+  icon?: ReactNode;
+  fullWidth?: boolean;
+  className?: string;
+} & ButtonHTMLAttributes<HTMLButtonElement>>(function Button(
+  { children, variant = 'primary', size = 'md', loading = false, icon, fullWidth = false, className = '', disabled, type = 'button', ...rest },
+  ref,
+) {
   return (
-    <motion.button
+    <button
+      ref={ref}
+      type={type}
+      disabled={disabled || loading}
+      className={`btn press ${VARIANT_CLASS[variant]} ${SIZE_CLASS[size]} ${fullWidth ? 'w-full' : ''} ${className}`}
       {...rest}
-      whileTap={reduce || rest.disabled ? undefined : { scale: 0.97 }}
-      className={`press btn ${
-        variant === 'primary' ? 'btn-primary' : variant === 'danger' ? 'btn-danger' : 'btn-ghost'
-      } ${className}`}
     >
+      {loading ? <Spinner size={size === 'sm' ? 14 : 16} /> : icon}
       {children}
-    </motion.button>
+    </button>
   );
-}
+});

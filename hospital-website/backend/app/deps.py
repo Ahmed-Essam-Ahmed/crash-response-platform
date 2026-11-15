@@ -35,24 +35,37 @@ def current_user(authorization: str = Header(default=""), db: Session = Depends(
     return _user_for_token(db, raw)
 
 
-def current_admin(user: models.User = Depends(current_user)):
-    if not security.require_role(user.role, "admin"):
-        raise HTTPException(status_code=403, detail="this action needs a hospital admin")
+def current_staff(user: models.User = Depends(current_user)):
+    """Any signed-in hospital user.
+
+    There is no longer an admin/dispatcher/viewer split: every hospital
+    account is `staff` and may act on cases. Sensitive changes are guarded
+    separately by the hospital admin password, not by a role.
+    """
+    if user.hospital is None:
+        raise HTTPException(status_code=403, detail="this action is for hospital staff")
     return user
 
 
-def current_dispatcher(user: models.User = Depends(current_user)):
-    """Gate for anything that acts on a case.
+def require_admin_password(
+    x_admin_password: str = Header(default=""),
+    user: models.User = Depends(current_user),
+):
+    """Gate for sensitive changes, checked per action.
 
-    Every mutating case endpoint used to accept any signed in user, so a
-    viewer account, which exists to be read only, could accept a case,
-    advance a patient through handover, and cancel a job. A viewer is a real
-    role people are given, so the server has to hold that line rather than
-    relying on the console hiding the buttons.
+    The hospital-wide admin password is verified on every sensitive request
+    rather than unlocking a session, so an unattended console never stays
+    able to change capacity or staff.
     """
-    if not security.require_role(user.role, "dispatcher"):
+    hospital = user.hospital
+    if hospital is None:
+        raise HTTPException(status_code=403, detail="this action is for hospital staff")
+    if not hospital.admin_password_hash or not security.verify_password(
+        x_admin_password, hospital.admin_password_salt or "", hospital.admin_password_hash
+    ):
         raise HTTPException(
-            status_code=403, detail="this action needs a dispatcher or admin role"
+            status_code=403,
+            detail="enter your hospital admin password to make this change",
         )
     return user
 

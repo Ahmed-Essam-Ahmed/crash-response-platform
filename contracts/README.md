@@ -45,12 +45,15 @@ hospital's id, so no request can name a hospital it does not belong to.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/cases` | Report a crash — **the upstream input boundary**, keyed by `x-ingest-key` |
-| `POST` | `/auth/register` | Onboard a hospital and its first admin |
-| `POST` | `/auth/login` | Exchange email + password for a token |
-| `GET`  | `/auth/me` | Current user, role, and hospital |
-| `GET`  | `/auth/staff` | Team roster for the caller's hospital (any role) |
-| `POST` | `/auth/staff` | Add a colleague — **admin only** |
-| `DELETE` | `/auth/staff/{user_id}` | Remove a colleague — **admin only** |
+| `POST` | `/auth/register` | Onboard a hospital, its first account, and its admin password |
+| `POST` | `/auth/login` | Exchange email + password for a token (hospital users pass a workspace code) |
+| `GET`  | `/auth/me` | Current user and hospital |
+| `GET`  | `/auth/authority/overview` | National live map feed: every hospital, open case, and ambulance (`authority` only) |
+| `GET`  | `/auth/authority/incidents/{alert_id}` | One case with its timeline for the national map (`authority` only) |
+| `GET`  | `/auth/staff` | Team roster for the caller's hospital (staff) |
+| `POST` | `/auth/staff` | Add a colleague — **admin password required** |
+| `DELETE` | `/auth/staff/{user_id}` | Remove a colleague — **admin password required** |
+| `GET`  | `/auth/review/registry` | Hospitals and pending claims, for the platform registry console (`X-Review-Key`) |
 | `GET`  | `/me/cases` | Board: offers, assigned cases, and recently finished |
 | `GET`  | `/me/cases/{alert_id}` | One case with its full timeline |
 | `POST` | `/me/cases/{alert_id}/accept` | Take a case that is offered to this hospital |
@@ -59,16 +62,19 @@ hospital's id, so no request can name a hospital it does not belong to.
 | `POST` | `/me/cases/{alert_id}/cancel` | Cancel a case this hospital holds |
 | `GET`  | `/me/hospital` | This hospital's profile and capacity |
 | `GET`  | `/me/beds` | Beds total, occupied, and free |
-| `PATCH` | `/me/beds` | Set bed capacity — **admin only** |
+| `PATCH` | `/me/beds` | Set bed capacity — **admin password required** |
 | `GET`  | `/me/fleet` | Ambulances with live positions |
-| `PATCH` | `/me/fleet` | Resize the fleet — **admin only** |
+| `PATCH` | `/me/fleet` | Resize the fleet — **admin password required** |
 | `GET`  | `/geo/search` | Place search for the registration and case forms |
 | `GET`  | `/health` | Liveness |
 | `WS`   | `/stream` | Real-time events, token in the query string |
 
-Role summary: `authority` is national oversight (no hospital, analytics only), `admin` manages the
-team and capacity, `dispatcher` acts on cases, `viewer` is read-only. The service enforces this on
-every write; the console hides what a role cannot do.
+Role summary: `authority` is national oversight (no hospital) — a live map of the whole country plus
+the read-only analytics service. `staff` is the single role for every hospital account. Staff act on
+cases normally; sensitive changes — capacity, invitations, and removing a colleague — are confirmed
+per action with the hospital admin password (`X-Admin-Password`), not by a role. Platform
+administration is separate again: the `REGISTRY_REVIEW_KEY` only unlocks the hospital registry
+(approve/reject claims and a read-only roster), never the map, cases, or capacity.
 
 ### data-analytics/service (port 8001)
 
@@ -178,7 +184,7 @@ eligible hospital.
 ```
 
 `status_step` is the index in the lifecycle, which is what the console's progress rail renders;
-`share_text` is pre-formatted so a dispatcher can hand a colleague the case in one tap.
+`share_text` is pre-formatted so a staff member can hand a colleague the case in one tap.
 `mechanism`, `emergency_contacts`, and `impact` are echoed on every incident shape, so the console
 renders "how it happened", who to call, and what the sensors recorded without a second request.
 `impact` is the stored `impact_factors` decoded into an object; it is `{}` when none were sent.

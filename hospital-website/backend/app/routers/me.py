@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, serializers
 from ..db import get_db
-from ..deps import current_admin, current_dispatcher, current_user, visible_hospital
+from ..deps import current_staff, current_user, require_admin_password, visible_hospital
 from ..domain import lifecycle
 from ..realtime import realtime
 from ..services import dispatch, intake, offers
@@ -21,6 +21,24 @@ class FleetUpdate(BaseModel):
 
 class BedsUpdate(BaseModel):
     beds_total: int | None = Field(default=None, ge=0, le=5000)
+
+
+class HospitalProfileUpdate(BaseModel):
+    """What a hospital may say about itself.
+
+    Every field here is used by the routing layer: name for identification,
+    coordinates and address for dispatch, trauma level for triage. That is
+    why the whole payload is gated by the hospital admin password rather
+    than by a person's login.
+    """
+
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    address: str | None = Field(default=None, max_length=240)
+    phone: str | None = Field(default=None, max_length=40)
+    emergency_phone: str | None = Field(default=None, max_length=40)
+    trauma_level: int | None = Field(default=None, ge=1, le=5)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 async def _push_resource_update(hospital, kind: str) -> None:
@@ -45,6 +63,32 @@ def _owned_incident(db, hospital, alert_id, *, require_assignment=False):
 @router.get("/hospital")
 def my_hospital(user: models.User = Depends(current_user)):
     return serializers.hospital_to_dict(user.hospital)
+
+
+@router.patch("/hospital")
+async def update_hospital_profile(
+    payload: HospitalProfileUpdate,
+    user: models.User = Depends(require_admin_password),
+    db: Session = Depends(get_db),
+):
+    hospital = user.hospital
+    if hospital is None:
+        raise HTTPException(status_code=403, detail="this action is for hospital staff")
+    changed = payload.model_dump(exclude_unset=True)
+    for field, value in changed.items():
+        setattr(hospital, field, value)
+    if changed:
+        db.commit()
+        db.refresh(hospital)
+        await realtime.broadcast(
+            {
+                "type": "hospital_profile_changed",
+                "hospital": serializers.hospital_to_dict(hospital),
+                "at": datetime.utcnow().isoformat(),
+            },
+            hospital_id=hospital.id,
+        )
+    return serializers.hospital_to_dict(hospital)
 
 
 @router.get("/cases")
@@ -110,7 +154,7 @@ def my_case(alert_id: str, user: models.User = Depends(current_user), db: Sessio
 
 
 @router.post("/cases/{alert_id}/accept")
-async def accept_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
+async def accept_case(alert_id: str, user: models.User = Depends(current_staff), db: Session = Depends(get_db)):
     incident = visible_hospital(db, alert_id, user.hospital)
     if incident.hospital_id is not None:
         if incident.hospital_id == user.hospital_id:
@@ -126,7 +170,7 @@ async def accept_case(alert_id: str, user: models.User = Depends(current_dispatc
 
 
 @router.post("/cases/{alert_id}/decline")
-async def decline_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
+async def decline_case(alert_id: str, user: models.User = Depends(current_staff), db: Session = Depends(get_db)):
     incident = visible_hospital(db, alert_id, user.hospital)
     try:
         await intake.decline_case(db, incident, user.hospital, user)
@@ -136,7 +180,7 @@ async def decline_case(alert_id: str, user: models.User = Depends(current_dispat
 
 
 @router.post("/cases/{alert_id}/advance")
-async def advance_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
+async def advance_case(alert_id: str, user: models.User = Depends(current_staff), db: Session = Depends(get_db)):
     incident = _owned_incident(db, user.hospital, alert_id, require_assignment=True)
     nxt = lifecycle.default_next(incident.status)
     if nxt is None:
@@ -154,7 +198,7 @@ async def advance_case(alert_id: str, user: models.User = Depends(current_dispat
 
 
 @router.post("/cases/{alert_id}/cancel")
-async def cancel_case(alert_id: str, user: models.User = Depends(current_dispatcher), db: Session = Depends(get_db)):
+async def cancel_case(alert_id: str, user: models.User = Depends(current_staff), db: Session = Depends(get_db)):
     incident = _owned_incident(db, user.hospital, alert_id, require_assignment=True)
     if not lifecycle.can_transition(incident.status, lifecycle.Status.CANCELLED):
         raise HTTPException(status_code=409, detail=f"cannot cancel from '{incident.status}'")
@@ -175,7 +219,7 @@ def my_fleet(user: models.User = Depends(current_user), db: Session = Depends(ge
 
 
 @router.patch("/fleet")
-async def update_fleet(payload: FleetUpdate, user: models.User = Depends(current_admin), db: Session = Depends(get_db)):
+async def update_fleet(payload: FleetUpdate, user: models.User = Depends(require_admin_password), db: Session = Depends(get_db)):
     hospital = user.hospital
     try:
         if payload.ambulances_total is not None:
@@ -203,7 +247,7 @@ def my_beds(user: models.User = Depends(current_user), db: Session = Depends(get
 
 
 @router.patch("/beds")
-async def update_beds(payload: BedsUpdate, user: models.User = Depends(current_admin), db: Session = Depends(get_db)):
+async def update_beds(payload: BedsUpdate, user: models.User = Depends(require_admin_password), db: Session = Depends(get_db)):
     hospital = user.hospital
     try:
         dispatch.set_beds(db, hospital, payload.beds_total)

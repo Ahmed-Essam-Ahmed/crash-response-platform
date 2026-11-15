@@ -113,6 +113,33 @@ def hospital_to_dict(hospital) -> dict:
     }
 
 
+def registry_hospital_to_dict(entry) -> dict:
+    """A curated registry entry that has not been claimed by a hospital tenant.
+
+    Only appears on the national consoles once geocoded, so it can be placed
+    on the map. Carries no fleet or bed data — that lives on the tenant once
+    a hospital claims the row.
+    """
+    return {
+        "hospital_id": f"registry-{entry.id}",
+        "name": entry.name,
+        "lat": entry.lat,
+        "lon": entry.lon,
+        "address": entry.address,
+        "location_label": entry.address or f"{entry.lat:.5f}, {entry.lon:.5f}",
+        "phone": None,
+        "emergency_phone": None,
+        "trauma_level": 0,
+        "ambulances_total": 0,
+        "ambulances_available": 0,
+        "beds_total": 0,
+        "beds_occupied": 0,
+        "free_beds": 0,
+        "maps_url": maps_url(entry.lat, entry.lon),
+        "governorate": entry.governorate,
+    }
+
+
 def maps_url(lat: float, lon: float, label: str | None = None) -> str:
     query = f"{lat},{lon}" + (f"({label})" if label else "")
     return f"https://www.google.com/maps/search/?api=1&query={query}"
@@ -160,6 +187,7 @@ def incident_to_dict(incident, include_events: bool = True, hospital=None) -> di
         "location": {
             "lat": incident.lat,
             "lon": incident.lon,
+            "governorate": incident.governorate,
             "label": incident.location_label,
             "maps_url": maps_url(incident.lat, incident.lon, incident.location_label),
             "directions_url": directions_url(

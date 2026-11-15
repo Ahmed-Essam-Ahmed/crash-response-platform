@@ -41,9 +41,11 @@ def get_current_user(
     if not path.exists():
         raise AuthError("database not found")
 
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
     con.row_factory = sqlite3.Row
     try:
+        con.execute("PRAGMA busy_timeout=5000")
+        con.execute("PRAGMA query_only=ON")
         rec = con.execute(
             """
             SELECT auth_tokens.user_id, auth_tokens.expires_at, auth_tokens.revoked_at,

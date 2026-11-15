@@ -13,10 +13,15 @@ import {
   patchFleet,
 } from '../api';
 import { useAuth } from '../auth';
+import { useTheme } from '../theme';
 import { useStream } from '../lib/useStream';
 import { withViewTransition } from '../lib/viewTransition';
+import { AdminPasswordGate } from './AdminPasswordDialog';
+import { AppShell } from './AppShell';
 import { AuroraBackground } from './AuroraBackground';
-import { TopBar } from './TopBar';
+import { Button } from './Button';
+import { AccountSettingsModal } from './AccountSettingsModal';
+import { HospitalProfileModal } from './HospitalProfileModal';
 import { StatRow } from './StatRow';
 import { IncidentCard } from './IncidentCard';
 import { OfferCard } from './OfferCard';
@@ -41,6 +46,7 @@ const EMPTY_CASES: CasesResponse = { assigned: [], recent: [], offers: [] };
 
 export function Console() {
   const { session, signOut, updateHospital } = useAuth();
+  const theme = useTheme();
   const [data, setData] = useState<CasesResponse>(EMPTY_CASES);
   const [fleet, setFleet] = useState<{ hospital: Hospital; ambulances: Ambulance[] } | null>(null);
   const [selected, setSelected] = useState<Incident | null>(null);
@@ -49,8 +55,14 @@ export function Console() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [staffOpen, setStaffOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [hospitalOpen, setHospitalOpen] = useState(false);
   const [mapFocus, setMapFocus] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [adminPrompt, setAdminPrompt] = useState<{
+    title: string;
+    resolve: (password: string | null) => void;
+  } | null>(null);
   const toastId = useRef(0);
   const pending = useRef<number | undefined>(undefined);
   const reduce = useReducedMotion();
@@ -134,8 +146,25 @@ export function Console() {
   );
 
   const user = session?.user;
-  const canAct = user ? user.role !== 'viewer' : false;
-  const canManage = user ? user.role === 'admin' : false;
+  const isStaff = user ? user.role !== 'authority' : false;
+  const canAct = isStaff;
+  const canManage = isStaff;
+
+  const requireAdmin = useCallback(
+    (title: string) =>
+      new Promise<string | null>((resolve) => setAdminPrompt({ title, resolve })),
+    [],
+  );
+
+  const settleAdmin = useCallback(
+    (password: string | null) => {
+      setAdminPrompt((current) => {
+        current?.resolve(password);
+        return null;
+      });
+    },
+    [],
+  );
 
   const fail = (err: unknown) =>
     notify(err instanceof Error ? err.message : 'That action could not be completed', 'critical');
@@ -172,10 +201,13 @@ export function Console() {
   const closeStaff = useCallback(() => setStaffOpen(false), []);
 
   const saveCapacity = async (body: { beds_total?: number; ambulances_total?: number }) => {
+    const password = await requireAdmin('Changing capacity affects which cases your hospital is offered.');
+    if (!password) return;
     setBusy('capacity');
     try {
-      if (body.ambulances_total != null) setFleet(await patchFleet({ ambulances_total: body.ambulances_total }));
-      if (body.beds_total != null) updateHospital(await patchBeds({ beds_total: body.beds_total }));
+      if (body.ambulances_total != null)
+        setFleet(await patchFleet({ ambulances_total: body.ambulances_total }, password));
+      if (body.beds_total != null) updateHospital(await patchBeds({ beds_total: body.beds_total }, password));
       await refresh();
       notify('Capacity updated');
     } catch (err) {
@@ -197,15 +229,34 @@ export function Console() {
         Skip to your cases
       </a>
 
-      <TopBar
-        hospital={session.hospital}
-        user={session.user}
-        connected={connected}
-        onStaff={() => setStaffOpen(true)}
+      <AppShell
+        title="Hospital console"
+        role={session.user.role}
+        userName={session.user.full_name || session.user.email}
+        hospitalName={session.hospital?.name ?? undefined}
+        maxWidth="wide"
         onSignOut={() => void signOut()}
-      />
-
-      <main className="mx-auto max-w-[100rem] space-y-5 px-4 py-5 sm:px-6 sm:py-6">
+        onOpenAccount={() => setAccountOpen(true)}
+        onOpenHospital={() => setHospitalOpen(true)}
+        onToggleTheme={() => theme.toggle()}
+        actions={
+          <>
+            <span
+              role="status"
+              className="chip hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium sm:inline-flex"
+            >
+              <span className="size-2 shrink-0 rounded-full bg-current" />
+              {connected ? 'Live' : 'Reconnecting'}
+            </span>
+            {session.user.role !== 'authority' && (
+              <Button variant="ghost" size="sm" onClick={() => setStaffOpen(true)}>
+                Team
+              </Button>
+            )}
+          </>
+        }
+      >
+        <div className="space-y-5">
         <AnimatePresence>
           {error && (
             <motion.div
@@ -250,11 +301,6 @@ export function Console() {
                 ))}
               </AnimatePresence>
             </motion.div>
-            {!canAct && (
-              <p className="text-sm text-muted">
-                Your account can follow cases but not accept them. Ask an admin for dispatcher access.
-              </p>
-            )}
           </section>
         )}
 
@@ -414,10 +460,36 @@ export function Console() {
             )}
           </aside>
         </div>
-      </main>
+      </div>
+      </AppShell>
 
       <DetailSheet incident={selected} onClose={closeDetails} />
-      <StaffSheet open={staffOpen} canManage={canManage} onClose={closeStaff} />
+      <StaffSheet open={staffOpen} canManage={canManage} requireAdmin={requireAdmin} onClose={closeStaff} />
+
+      <AccountSettingsModal
+        open={accountOpen}
+        onClose={() => setAccountOpen(false)}
+        userName={session.user.full_name || session.user.email}
+        email={session.user.email}
+        role={session.user.role}
+        onSignOut={() => {
+          setAccountOpen(false);
+          void signOut();
+        }}
+      />
+      <HospitalProfileModal
+        open={hospitalOpen}
+        onClose={() => setHospitalOpen(false)}
+        hospitalName={session.hospital?.name ?? 'Hospital'}
+        hospitalCode={session.hospital?.hospital_id}
+      />
+
+      <AdminPasswordGate
+        open={adminPrompt !== null}
+        title={adminPrompt?.title ?? ''}
+        onSubmit={(password) => settleAdmin(password)}
+        onCancel={() => settleAdmin(null)}
+      />
 
       <Toaster
         toasts={toasts}

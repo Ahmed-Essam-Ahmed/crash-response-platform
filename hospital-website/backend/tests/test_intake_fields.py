@@ -85,6 +85,23 @@ class ContactPayloadTest(unittest.TestCase):
         self.assertEqual(second.full_name, "Karim Fouad")
         self.assertFalse(second.is_primary)
 
+    def test_intake_persists_governorate(self):
+        import asyncio
+
+        db = make_db()
+        incident = asyncio.run(
+            intake.create_case(
+                db,
+                {
+                    "severity": 6.0,
+                    "governorate": "Alexandria",
+                    "location": {"lat": 31.2, "lon": 29.92, "governorate": "Alexandria"},
+                },
+            )
+        )
+        db.refresh(incident)
+        self.assertEqual(incident.governorate, "Alexandria")
+
     def test_a_case_without_contacts_is_fine(self):
         import asyncio
 

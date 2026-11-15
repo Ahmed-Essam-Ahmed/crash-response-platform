@@ -80,16 +80,24 @@ class SeedRegistryTest(unittest.TestCase):
         self.assertEqual(self.db.query(models.RegistryHospital).count(), total)
         self.assertTrue(first > 0)
 
-    def test_seeded_rows_have_no_invented_coordinates(self):
+    def test_seeded_rows_carry_real_coordinates(self):
+        """Every seed row is a real hospital with a real point from the sources.
+
+        The seed is generated from OpenStreetMap and Wikidata, so each entry
+        must arrive with a coordinate that falls inside Egypt rather than
+        being left blank or guessed.
+        """
         hospital_registry.seed_registry(self.db, SEED_REGISTRY)
         for row in self.db.query(models.RegistryHospital).filter(
             models.RegistryHospital.source == "seed"
         ):
-            self.assertIsNone(row.lat)
-            self.assertIsNone(row.lon)
+            self.assertIsNotNone(row.lat, row.name)
+            self.assertIsNotNone(row.lon, row.name)
+            self.assertTrue(22.0 <= row.lat <= 31.7, row.name)
+            self.assertTrue(24.7 <= row.lon <= 36.9, row.name)
 
     def test_aliases_are_backfilled_on_rerun(self):
-        rows = [(name, ar, gov, None) for name, ar, gov, _ in SEED_REGISTRY]
+        rows = [(name, ar, gov, None) for name, ar, gov, *_ in SEED_REGISTRY]
         hospital_registry.seed_registry(self.db, rows)
         target = self.db.query(models.RegistryHospital).filter(
             models.RegistryHospital.name_normalized == normalize("Cairo University Hospital")
@@ -159,7 +167,9 @@ class SearchTest(unittest.TestCase):
 
     def test_governorate_filter(self):
         results = hospital_registry.search(self.db, "", governorate="Luxor")
-        self.assertEqual([r.name for r in results], ["Luxor University Hospital"])
+        self.assertIn("Luxor University Hospital", [r.name for r in results])
+        self.assertTrue(results)
+        self.assertTrue(all(r.governorate == "Luxor" for r in results))
 
     def test_demo_entries_hidden_by_default(self):
         self.db.add(

@@ -91,6 +91,7 @@ class JoinTest(unittest.TestCase):
         payload = {
             "registry_id": self.entry.id,
             "admin": credentials(),
+            "admin_password": "hospital-admin",
             "trauma_level": 2,
             "ambulances_total": 3,
             "beds_total": 20,
@@ -98,11 +99,22 @@ class JoinTest(unittest.TestCase):
         payload.update(overrides)
         return auth.join_hospital(auth.HospitalJoin(**payload), db=self.db)
 
-    def test_joining_creates_a_tenant_and_an_admin(self):
+    def test_joining_creates_a_tenant_and_a_staff_account(self):
         result = self.join()
-        self.assertEqual(result["user"]["role"], "admin")
+        self.assertEqual(result["user"]["role"], "staff")
         self.assertEqual(result["hospital"]["name"], "Tanta University Hospital")
         self.assertEqual(result["hospital"]["ambulances_total"], 3)
+
+    def test_joining_stores_the_hospital_admin_password(self):
+        """The admin password guards sensitive changes and is set once here."""
+        self.join()
+        hospital = self.db.query(models.Hospital).one()
+        self.assertTrue(hospital.admin_password_hash)
+        self.assertTrue(
+            security.verify_password(
+                "hospital-admin", hospital.admin_password_salt, hospital.admin_password_hash
+            )
+        )
 
     def test_tenant_records_the_registry_entry_it_claimed(self):
         self.join()
@@ -127,7 +139,7 @@ class JoinTest(unittest.TestCase):
         other = entry_for(self.db, "Luxor University Hospital")
         with self.assertRaises(HTTPException) as caught:
             auth.join_hospital(
-                auth.HospitalJoin(registry_id=other.id, admin=credentials()),
+                auth.HospitalJoin(registry_id=other.id, admin=credentials(), admin_password="hospital-admin"),
                 db=self.db,
             )
         self.assertEqual(caught.exception.status_code, 409)
@@ -152,7 +164,7 @@ class JoinTest(unittest.TestCase):
 
         with self.assertRaises(HTTPException) as caught:
             auth.join_hospital(
-                auth.HospitalJoin(registry_id=twin.id, admin=credentials(email="other@tanta.example")),
+                auth.HospitalJoin(registry_id=twin.id, admin=credentials(email="other@tanta.example"), admin_password="hospital-admin"),
                 db=self.db,
             )
         self.assertEqual(caught.exception.status_code, 409)
@@ -168,7 +180,7 @@ class JoinTest(unittest.TestCase):
         self.db.commit()
         with self.assertRaises(HTTPException) as caught:
             auth.join_hospital(
-                auth.HospitalJoin(registry_id=neighbour.id, admin=credentials(email="two@tanta.example")),
+                auth.HospitalJoin(registry_id=neighbour.id, admin=credentials(email="two@tanta.example"), admin_password="hospital-admin"),
                 db=self.db,
             )
         self.assertEqual(caught.exception.status_code, 409)
@@ -195,7 +207,7 @@ class JoinTest(unittest.TestCase):
     def test_unknown_registry_id_is_a_404(self):
         with self.assertRaises(HTTPException) as caught:
             auth.join_hospital(
-                auth.HospitalJoin(registry_id=999999, admin=credentials()), db=self.db
+                auth.HospitalJoin(registry_id=999999, admin=credentials(), admin_password="hospital-admin"), db=self.db
             )
         self.assertEqual(caught.exception.status_code, 404)
 
@@ -273,15 +285,15 @@ class InvitationTest(unittest.TestCase):
             full_name="Admin",
             password_hash=digest,
             password_salt=salt,
-            role="admin",
+            role="staff",
         )
         self.db.add(self.admin)
         self.db.commit()
 
-    def invite(self, email="dispatch@tanta.example", role="dispatcher", mail_ok=True):
+    def invite(self, email="dispatch@tanta.example", mail_ok=True):
         with patch.object(auth.mail, "send", return_value=mail_ok):
             return auth.invite_staff(
-                auth.InvitationCreate(email=email, role=role), admin=self.admin, db=self.db
+                auth.InvitationCreate(email=email), admin=self.admin, db=self.db
             )
 
     def token_from(self, result):
@@ -314,7 +326,7 @@ class InvitationTest(unittest.TestCase):
             db=self.db,
         )
         self.assertEqual(result["user"]["email"], "dispatch@tanta.example")
-        self.assertEqual(result["user"]["role"], "dispatcher")
+        self.assertEqual(result["user"]["role"], "staff")
         self.assertIsNotNone(result["token"])
 
     def test_recipient_sets_their_own_password(self):
@@ -375,7 +387,7 @@ class InvitationTest(unittest.TestCase):
         token = self.token_from(self.invite())
         preview = auth.preview_invitation(token, db=self.db)
         self.assertEqual(preview["hospital"], "Tanta University Hospital")
-        self.assertEqual(preview["role"], "dispatcher")
+        self.assertEqual(preview["role"], "staff")
 
     def test_short_password_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -395,27 +407,13 @@ class InvitationTest(unittest.TestCase):
         self.db.add(
             models.User(
                 hospital_id=self.hospital.id, email="dispatch@tanta.example", full_name="D",
-                password_hash="x", password_salt="y", role="dispatcher",
+                password_hash="x", password_salt="y", role="staff",
             )
         )
         self.db.commit()
         with self.assertRaises(HTTPException) as caught:
             self.invite()
         self.assertEqual(caught.exception.status_code, 409)
-
-    def test_admin_cannot_grant_a_role_above_their_own(self):
-        dispatcher = models.User(
-            hospital_id=self.hospital.id, email="d@tanta.example", full_name="D",
-            password_hash="x", password_salt="y", role="dispatcher",
-        )
-        self.db.add(dispatcher)
-        self.db.commit()
-        with self.assertRaises(HTTPException) as caught:
-            auth.invite_staff(
-                auth.InvitationCreate(email="new@tanta.example", role="admin"),
-                admin=dispatcher, db=self.db,
-            )
-        self.assertEqual(caught.exception.status_code, 403)
 
     def test_mail_failure_is_reported_not_hidden(self):
         result = self.invite(mail_ok=False)

@@ -13,7 +13,7 @@ app/
 ├── models.py          Hospital, RegistryHospital, HospitalClaim, StaffInvitation, …
 ├── serializers.py     model → dict for REST and WebSocket
 ├── realtime.py        WebSocket connection manager
-├── deps.py            bearer auth, role gates, cross-tenant visibility
+├── deps.py            bearer auth, admin-password gate, cross-tenant visibility
 ├── domain/            pure logic, no framework
 │   ├── lifecycle.py   incident state machine + legal transitions
 │   ├── triage.py      severity → destination + required resources
@@ -86,20 +86,27 @@ their own password; the address comes from the invitation, never from the
 request, so a forwarded link only works for someone who also receives mail
 there.
 
-Roles are enforced server side. Case actions need a dispatcher, capacity
-changes and invitations need an admin, and a viewer can read but not act.
+There is one hospital role, `staff`, so every account can act on cases.
+Sensitive changes — capacity, invitations, and removing a colleague — are
+confirmed per action by sending the hospital's admin password as
+`X-Admin-Password`; it is checked against a hash on the hospital rather
+than held as a session elevation, so an unattended console never stays able
+to make those changes.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/auth/registry` | Public registry search (`?q=`, `?governorate=`) |
-| `POST` | `/auth/join` | Claim a registry entry, create the first admin |
+| `POST` | `/auth/join` | Claim a registry entry, create the first account, set the admin password |
 | `POST` | `/auth/claims` | Request a hospital that is not listed, for review |
 | `GET` | `/auth/review/claims` | List pending registry claims (`X-Review-Key`) |
 | `POST` | `/auth/review/claims/{id}/approve` | Add an approved claim to the registry (`X-Review-Key`) |
 | `POST` | `/auth/review/claims/{id}/reject` | Close a claim with an optional note (`X-Review-Key`) |
 | `GET` | `/auth/review/overview` | National hospitals, active cases, fleet, and pending claims (`X-Review-Key`) |
+| `GET` | `/auth/review/registry` | Hospitals and pending claims only, for the platform registry console (`X-Review-Key`) |
+| `GET` | `/auth/authority/overview` | National live map feed for authority accounts: hospitals, fleet, and open cases |
+| `GET` | `/auth/authority/incidents/{alert_id}` | One case with its timeline, for the authority's national map |
 | `PATCH` | `/auth/review/hospitals/{id}/capacity` | Override beds and fleet capacity (`X-Review-Key`) |
 | `POST` | `/auth/review/incidents/{alert_id}/advance` | Advance a case across hospitals (`X-Review-Key`) |
 | `POST` | `/auth/review/incidents/{alert_id}/cancel` | Cancel a case across hospitals (`X-Review-Key`) |
@@ -110,15 +117,15 @@ changes and invitations need an admin, and a viewer can read but not act.
 | `POST` | `/auth/logout` | Revoke every session |
 | `GET` | `/auth/staff` | Hospital team |
 | `GET` | `/auth/staff/invitations` | Invitation history |
-| `POST` | `/auth/staff/invitations` | Invite a colleague by email (admin) |
-| `DELETE` | `/auth/staff/invitations/{id}` | Withdraw a pending invitation |
-| `DELETE` | `/auth/staff/{user_id}` | Deactivate a colleague, revoking their sessions |
+| `POST` | `/auth/staff/invitations` | Invite a colleague by email (admin password) |
+| `DELETE` | `/auth/staff/invitations/{id}` | Withdraw a pending invitation (admin password) |
+| `DELETE` | `/auth/staff/{user_id}` | Deactivate a colleague, revoking their sessions (admin password) |
 | `POST` | `/cases` | Report a crash → creates the incident and dispatches |
 | `GET` | `/me/cases` | This hospital's cases and offers |
 | `POST` | `/me/cases/{alert_id}/accept` | Take an offered case |
 | `POST` | `/me/cases/{alert_id}/advance` | Move a case to its next state |
-| `PATCH` | `/me/fleet` | Ambulance count and readiness (admin) |
-| `PATCH` | `/me/beds` | Bed capacity (admin) |
+| `PATCH` | `/me/fleet` | Ambulance count and readiness (admin password) |
+| `PATCH` | `/me/beds` | Bed capacity (admin password) |
 | `GET` | `/geo/search` | Nominatim search |
 | `WS` | `/me/stream` | Real-time event stream for this hospital |
 | `GET` | `/health` | Liveness |
@@ -154,14 +161,22 @@ the console shows the link to share by hand. It says so rather than
 pretending, because a developer who believes mail went out will debug the
 wrong thing.
 
-Platform admin access is separate from hospital accounts. Set a private
-`REGISTRY_REVIEW_KEY` to enable the national admin endpoints. The hospital
-website serves the platform control room from the shared sign-in screen; the
-administrator selects the `Platform admin` sign-in option. It uses that key to
-load the national map and perform platform-level claim, capacity, and case
-actions. An approved
+There are two national consoles, and they see different things.
+
+**Authority** accounts (`role = authority`, no hospital) get the live national
+map: `GET /auth/authority/overview` returns every hospital, open case, and
+ambulance, and `GET /auth/authority/incidents/{alert_id}` returns one case with
+its timeline. It is read-only — authority accounts never advance a case or touch
+capacity. The read-only analytics service is theirs too.
+
+**Platform admin** is separate from hospital accounts. Set a private
+`REGISTRY_REVIEW_KEY` and open the **Platform admin** link on the sign-in screen;
+the key rides as `X-Review-Key`. It only manages the hospital registry —
+`GET /auth/review/registry` for the roster and pending claims, and the
+approve/reject endpoints above. It does not see the map, cases, ambulances, or
+analytics, and it cannot override capacity. An approved
 claim creates a registry entry only; the requester still has to claim that
-entry through `/auth/join` and become its first admin. A rejected claim is
+entry through `/auth/join` and become its first account. A rejected claim is
 closed with the review note. Both actions email the requester when SMTP is
 configured; otherwise the API returns `mail_sent: false` and the decision is
 still recorded.

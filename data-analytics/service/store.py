@@ -6,12 +6,39 @@ age buckets in a consistent shape so the analytics layer can remain simple.
 
 import json
 import sqlite3
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from config import MAX_INCIDENTS
+from config import CACHE_TTL_SECONDS, DEMO_TRIP_PREFIXES, MAX_INCIDENTS
 from regions import region_for
+
+_CACHE: Dict[str, dict] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _db_signature(path: Path) -> tuple:
+    """Use the main DB and WAL file so new commits invalidate the cache."""
+    parts = []
+    for candidate in (path, path.with_name(f"{path.name}-wal")):
+        try:
+            stat = candidate.stat()
+            parts.append((stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            parts.append(None)
+    return tuple(parts)
+
+
+def is_demo_trip(trip_id: Any) -> bool:
+    value = str(trip_id or "")
+    return any(value.startswith(prefix) for prefix in DEMO_TRIP_PREFIXES)
+
+
+def clear_cache() -> None:
+    with _CACHE_LOCK:
+        _CACHE.clear()
 
 
 def load(db_path: str | Path) -> List[Dict[str, Any]]:
@@ -19,15 +46,29 @@ def load(db_path: str | Path) -> List[Dict[str, Any]]:
     if not path.exists():
         return []
 
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    signature = _db_signature(path)
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        cached = _CACHE.get(str(path))
+        if (
+            cached is not None
+            and cached["signature"] == signature
+            and now - cached["loaded_at"] < CACHE_TTL_SECONDS
+        ):
+            return cached["incidents"]
+
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
     con.row_factory = sqlite3.Row
     try:
-        rows = con.execute(
-            """
+        con.execute("PRAGMA busy_timeout=5000")
+        con.execute("PRAGMA query_only=ON")
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(incidents)").fetchall()}
+        governorate = "i.governorate" if "governorate" in columns else "NULL AS governorate"
+        query = f"""
             SELECT i.alert_id, i.trip_id, i.severity, i.severity_source, i.severity_confidence,
-                   i.severity_summary, i.mechanism, i.lat, i.lon, i.location_label,
-                   i.status, i.destination, i.hospital_id, i.patient_id, i.accepted_at,
-                   i.created_at, i.updated_at, i.closed_at, i.eta_scene_seconds,
+                   i.severity_summary, i.mechanism, i.lat, i.lon, {governorate},
+                   i.location_label, i.status, i.destination, i.hospital_id, i.patient_id,
+                   i.accepted_at, i.created_at, i.updated_at, i.closed_at, i.eta_scene_seconds,
                    i.eta_hospital_seconds, i.distance_m,
                    p.full_name, p.age, p.blood_type, p.gender,
                    p.conditions, p.medications, p.allergies, p.notes,
@@ -36,10 +77,12 @@ def load(db_path: str | Path) -> List[Dict[str, Any]]:
             LEFT JOIN patient_profiles p ON p.id = i.patient_id
             LEFT JOIN hospitals h ON h.id = i.hospital_id
             ORDER BY i.created_at DESC, i.id DESC
-            LIMIT ?
-            """,
-            (MAX_INCIDENTS,),
-        ).fetchall()
+        """
+        params: tuple = ()
+        if MAX_INCIDENTS > 0:
+            query += " LIMIT ?"
+            params = (MAX_INCIDENTS,)
+        rows = con.execute(query, params).fetchall()
     finally:
         con.close()
 
@@ -49,11 +92,17 @@ def load(db_path: str | Path) -> List[Dict[str, Any]]:
         # normalize
         inc["severity"] = float(inc.get("severity") or 0.0)
         inc["age"] = inc.get("age")
-        # region
-        try:
-            region = region_for(float(inc["lat"]), float(inc["lon"]))
-        except Exception:
-            region = None
+        inc["data_origin"] = "synthetic_demo" if is_demo_trip(inc.get("trip_id")) else "live"
+        # governorate (stored at intake when known, otherwise nearest centre)
+        stored = inc.get("governorate")
+        if isinstance(stored, str) and stored.strip():
+            region = stored.strip()
+        else:
+            try:
+                region = region_for(float(inc["lat"]), float(inc["lon"]))
+            except Exception:
+                region = None
+        inc["governorate"] = region
         inc["region"] = region
         # age group
         ag = None
@@ -85,6 +134,12 @@ def load(db_path: str | Path) -> List[Dict[str, Any]]:
     for inc in incidents:
         inc["offers"] = offer_map.get(inc["alert_id"], [])
 
+    with _CACHE_LOCK:
+        _CACHE[str(path)] = {
+            "signature": signature,
+            "loaded_at": time.monotonic(),
+            "incidents": incidents,
+        }
     return incidents
 
 
@@ -92,7 +147,7 @@ def load_events(db_path: str | Path) -> Dict[str, List[Dict[str, Any]]]:
     path = Path(db_path)
     if not path.exists():
         return {}
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
     con.row_factory = sqlite3.Row
     try:
         rows = con.execute(
@@ -116,7 +171,7 @@ def load_offers(db_path: str | Path) -> Dict[str, List[Dict[str, Any]]]:
     path = Path(db_path)
     if not path.exists():
         return {}
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
     con.row_factory = sqlite3.Row
     try:
         rows = con.execute(

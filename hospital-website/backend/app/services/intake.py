@@ -90,6 +90,7 @@ async def create_case(db, payload: dict) -> models.Incident:
         mechanism=payload.get("mechanism") or (payload.get("impact_factors") or {}).get("mechanism"),
         lat=float(location.get("lat", 30.04)),
         lon=float(location.get("lon", 31.24)),
+        governorate=payload.get("governorate") or location.get("governorate"),
         location_label=payload.get("location_label") or location.get("label") or location.get("address"),
         occurred_at=occurred_at,
         status=lifecycle.Status.DETECTED.value,

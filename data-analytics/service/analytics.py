@@ -61,7 +61,7 @@ def _filtered(incidents: List[Dict[str, Any]], f: Filters) -> List[Dict[str, Any
 
 
 def _hotspots(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    cells: Dict[tuple, Dict[str, float]] = {}
+    cells: Dict[tuple, Dict[str, Any]] = {}
     for inc in incidents:
         try:
             lat = float(inc["lat"])
@@ -71,21 +71,38 @@ def _hotspots(incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key = (round(lat / HOTSPOT_SPACING), round(lon / HOTSPOT_SPACING))
         cell = cells.setdefault(
             key,
-            {"lat": key[0] * HOTSPOT_SPACING, "lon": key[1] * HOTSPOT_SPACING, "count": 0, "max_severity": 0.0},
+            {
+                "lat_sum": 0.0,
+                "lon_sum": 0.0,
+                "count": 0,
+                "max_severity": 0.0,
+                "sev_sum": 0.0,
+                "governorate": None,
+            },
         )
+        severity = float(inc.get("severity") or 0.0)
         cell["count"] += 1
-        cell["max_severity"] = max(cell["max_severity"], float(inc.get("severity") or 0.0))
+        cell["lat_sum"] += lat
+        cell["lon_sum"] += lon
+        cell["sev_sum"] += severity
+        cell["max_severity"] = max(cell["max_severity"], severity)
+        if not cell["governorate"]:
+            cell["governorate"] = inc.get("governorate")
     out = []
     for cell in cells.values():
+        count = int(cell["count"])
         out.append(
             {
-                "lat": round(cell["lat"], 5),
-                "lon": round(cell["lon"], 5),
-                "count": int(cell["count"]),
+                "lat": round(cell["lat_sum"] / count, 5),
+                "lon": round(cell["lon_sum"] / count, 5),
+                "count": count,
                 "max_severity": round(cell["max_severity"], 1),
+                "avg_severity": round(cell["sev_sum"] / count, 1) if count else 0.0,
+                "severity_sum": round(cell["sev_sum"], 1),
+                "governorate": cell["governorate"],
             }
         )
-    out.sort(key=lambda c: (-c["count"], -c["max_severity"]))
+    out.sort(key=lambda c: (-c["severity_sum"], -c["count"]))
     return out
 
 
@@ -305,6 +322,27 @@ def _totals(incidents: List[Dict[str, Any]]) -> Dict[str, Any]:
         "hospitals_active": len({h for h in hospitals if h}),
         "regions_active": len(regions),
         "unclaimed": unclaimed,
+    }
+
+
+def provenance(incidents: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Describe whether the dashboard is showing synthetic demo rows."""
+    total = len(incidents)
+    synthetic = sum(1 for inc in incidents if inc.get("data_origin") == "synthetic_demo")
+    if total == 0:
+        mode = "empty"
+    elif synthetic == total:
+        mode = "demo"
+    elif synthetic:
+        mode = "mixed"
+    else:
+        mode = "live"
+    return {
+        "data_mode": mode,
+        "total_incidents": total,
+        "synthetic_incidents": synthetic,
+        "synthetic_share": round(synthetic / total, 3) if total else 0.0,
+        "response_time_definition": "report_to_handover",
     }
 
 

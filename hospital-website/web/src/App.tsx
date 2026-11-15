@@ -4,6 +4,7 @@ import { ThemeProvider } from './theme';
 import { AuroraBackground } from './components/AuroraBackground';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthorityDashboard } from './components/authority/AuthorityDashboard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const Console = lazy(() => import('./components/Console').then((module) => ({ default: module.Console })));
 
@@ -32,7 +33,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Gate />
+        <ErrorBoundary>
+          <Gate />
+        </ErrorBoundary>
       </AuthProvider>
     </ThemeProvider>
   );

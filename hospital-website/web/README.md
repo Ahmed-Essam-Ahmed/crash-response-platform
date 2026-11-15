@@ -12,9 +12,12 @@ npm run dev        # http://localhost:5173
 ```
 
 Platform administrators use the **Platform admin** option on the same sign-in
-screen as hospital staff. It uses the backend's `REGISTRY_REVIEW_KEY` to load
-the cross-hospital map, live incidents and fleet, adjust hospital capacity,
-intervene in assigned cases, and review hospital claims.
+screen. It uses the backend's `REGISTRY_REVIEW_KEY` and only manages the
+hospital registry — reviewing claims and a read-only roster. It has no map,
+cases, fleet, or analytics.
+
+Authority accounts sign in normally and open a two-tab national view: a live map
+of every hospital, case, and ambulance, plus the read-only analytics charts.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -133,24 +136,24 @@ patch it on top for immediacy. Both paths are idempotent, so a reconnect cannot 
 | Cancel this case | `POST /me/cases/{alert_id}/cancel` |
 | Details | `GET /me/cases/{alert_id}` (full timeline) |
 | Team | `GET/DELETE /auth/staff`, `GET/POST/DELETE /auth/staff/invitations` |
-| Capacity | `PATCH /me/beds`, `PATCH /me/fleet` (admin) |
+| Capacity | `PATCH /me/beds`, `PATCH /me/fleet` (admin password) |
 | Register | `GET /auth/registry`, `POST /auth/join`, `POST /auth/claims` |
 
-Roles are enforced by the server, and the console follows. A viewer sees cases and cannot act on
-them; only a dispatcher or admin can accept, advance, or cancel. Capacity and invitations need an
-admin. The UI hides what a role cannot do, but the API refuses it regardless, so the boundary does
-not depend on the console being loaded.
+There is one hospital role, `staff`, and the console follows. Every staff account can accept,
+advance, or cancel cases. Capacity changes and team changes (invitations, removals) are confirmed by
+the hospital admin password, sent as `X-Admin-Password` on that one request. The API refuses the
+write without it regardless of the console, so the boundary does not depend on the console being
+loaded.
 
 A case is offered to the nearest hospital that can take it, so the board has three lists: cases
 offered to you, cases you are working, and what you have recently finished. Skeletons stand in
 during load so the board never flashes empty. Filter tabs narrow the board to all, critical, or
 arriving patients.
 
-**Roles are enforced in the interface, not just the API.** A viewer is shown the board, the maps,
-the patient details, and the team roster, but no accept, pass, advance, cancel, or capacity
-controls; a dispatcher gets the case actions but not the team or capacity editors. The service
-rejects those writes regardless, so the point of hiding them is that the console never offers an
-action that is going to be refused.
+**Sensitive changes are confirmed in the interface, not just by the API.** Capacity and team editors
+are available to any staff account, and picking a change opens a prompt for the hospital admin
+password before the request is sent. The service rejects those writes without it regardless, so the
+point of prompting is that the console never sends an action that is going to be refused.
 
 ## Structure
 
@@ -169,7 +172,8 @@ src/
   lib/viewTransition.ts   View Transition wrapper with a no-op fallback
   components/             AuthScreen, Console, TopBar, StatRow, OfferCard,
                           IncidentCard, Stepper, DetailSheet, LiveMap,
-                          CaseFacts, ResourcePanel, StaffSheet, Button, Toaster
+                          CaseFacts, ResourcePanel, StaffSheet, AdminPasswordDialog,
+                          Button, Toaster
 ```
 
 ## The live map
@@ -197,11 +201,11 @@ The route is drawn as the part still ahead of the ambulance. As it drives, the l
 dropped, so what you see is what is left to travel rather than a road it has already covered. The
 line switches to the return leg, trimmed the same way, once the crew starts transporting.
 A line is only drawn while there is road left to cover, and the crash pin is dropped once the
-crew reaches the patient, because the site stops being somewhere a dispatcher needs to watch.
+crew reaches the patient, because the site stops being somewhere a staff member needs to watch.
 Picking that case from the list then centres on the ambulance instead, which is carrying the
 patient. The case card still has the address.
 
-The map fits every layer once on first load and then leaves the view alone, because a dispatcher
+The map fits every layer once on first load and then leaves the view alone, because staff
 panning to a case should not have the viewport yanked back by the next position update. Selecting a
 case flies to its pin instead, and the crosshair button above the map flies back to everything the
 hospital is currently responsible for, which is the way out after zooming in on a corner of the city

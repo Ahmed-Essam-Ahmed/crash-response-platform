@@ -48,15 +48,13 @@ class TokenTest(unittest.TestCase):
         self.assertFalse(security.token_matches(other, hashed))
 
 
-class RoleTest(unittest.TestCase):
-    def test_rank_ordering(self):
-        self.assertTrue(security.require_role("admin", "dispatcher"))
-        self.assertTrue(security.require_role("dispatcher", "viewer"))
-        self.assertFalse(security.require_role("viewer", "dispatcher"))
-        self.assertFalse(security.require_role("dispatcher", "admin"))
+class RoleModelTest(unittest.TestCase):
+    def test_hospital_roles_collapsed_to_staff(self):
+        self.assertEqual(set(security.ROLES), {"authority", "staff"})
 
-    def test_unknown_role_never_passes(self):
-        self.assertFalse(security.require_role("ghost", "viewer"))
+    def test_retired_roles_are_gone(self):
+        for retired in ("admin", "dispatcher", "viewer"):
+            self.assertNotIn(retired, security.ROLES)
 
 
 class VisibilityTest(unittest.TestCase):

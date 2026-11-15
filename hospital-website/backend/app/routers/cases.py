@@ -44,6 +44,7 @@ class CasePayload(BaseModel):
     severity_confidence: float | None = Field(default=None, ge=0, le=1)
     severity_summary: str | None = None
     mechanism: str | None = None
+    governorate: str | None = None
     location: dict
     location_label: str | None = None
     occurred_at: str | None = None

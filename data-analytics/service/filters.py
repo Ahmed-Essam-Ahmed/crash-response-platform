@@ -1,7 +1,7 @@
 """Filter parsing and application for analytics queries."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable
 
 
@@ -35,22 +35,34 @@ def parse_filters(params: dict) -> Filters:
             out.extend(part.strip() for part in item.split(",") if part.strip())
         return out
 
+    def _scalar(key: str):
+        v = params.get(key)
+        if isinstance(v, (list, tuple)):
+            v = v[-1] if v else None
+        return v
+
     def _float(key: str, default: float) -> float:
         try:
-            v = params.get(key)
+            v = _scalar(key)
             if v in (None, ""):
                 return default
             return float(v)
         except Exception:
             return default
 
-    def _dt(key: str) -> datetime | None:
+    def _dt(key: str, end_of_day: bool = False) -> datetime | None:
         try:
-            v = params.get(key)
+            v = _scalar(key)
             if not v:
                 return None
             s = str(v)
-            for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            if len(s) == 10:
+                try:
+                    day = datetime.strptime(s, "%Y-%m-%d")
+                    return day + timedelta(days=1) - timedelta(microseconds=1) if end_of_day else day
+                except Exception:
+                    pass
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
                 try:
                     return datetime.strptime(s[: len(fmt)], fmt)
                 except Exception:
@@ -59,10 +71,12 @@ def parse_filters(params: dict) -> Filters:
         except Exception:
             return None
 
+    regions = list(dict.fromkeys(_list("governorate") + _list("region")))
+
     return Filters(
-        regions=_list("region"),
+        regions=regions,
         date_from=_dt("from"),
-        date_to=_dt("to"),
+        date_to=_dt("to", end_of_day=True),
         severity_min=_float("severity_min", 0.0),
         severity_max=_float("severity_max", 10.0),
         hospitals=_list("hospital"),

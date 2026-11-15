@@ -23,6 +23,8 @@ HOSPITAL_COLUMNS = {
     "ambulances_available": "INTEGER NOT NULL DEFAULT 0",
     "beds_total": "INTEGER NOT NULL DEFAULT 0",
     "beds_occupied": "INTEGER NOT NULL DEFAULT 0",
+    "admin_password_hash": "VARCHAR",
+    "admin_password_salt": "VARCHAR",
     "created_at": "DATETIME",
 }
 
@@ -33,6 +35,7 @@ INCIDENT_COLUMNS = {
     "mechanism": "TEXT",
     "route_outbound": "TEXT",
     "route_inbound": "TEXT",
+    "governorate": "VARCHAR",
     "location_label": "VARCHAR",
     "occurred_at": "DATETIME",
     "patient_id": "INTEGER",
@@ -85,6 +88,7 @@ INVITATION_COLUMNS = {
 NEW_INDEXES = (
     ("ix_ambulances_hospital_id", "ambulances", "hospital_id"),
     ("ix_incidents_hospital_id", "incidents", "hospital_id"),
+    ("ix_incidents_governorate", "incidents", "governorate"),
 )
 
 # These carry the duplicate-hospitals guarantee, so they are unique rather
@@ -140,6 +144,7 @@ def apply(engine) -> list[str]:
 
     backfill_legacy_columns(engine)
     backfill_session(engine)
+    backfill_staff_role(engine)
 
     for model in REBUILDABLE:
         applied.extend(_rebuild_legacy_table(engine, model))
@@ -235,6 +240,25 @@ def backfill_legacy_columns(engine) -> None:
                 "WHERE ambulances_total = 0"
             )
         )
+
+
+def backfill_staff_role(engine) -> None:
+    """Collapse the retired hospital roles onto the single `staff` role.
+
+    `users.role` and `staff_invitations.role` were free-form strings, so the
+    old admin/dispatcher/viewer values stay behind after the role model
+    collapses. Without this they would keep working as unknown roles.
+    """
+    with engine.begin() as conn:
+        for table in ("users", "staff_invitations"):
+            if table not in set(inspect(conn).get_table_names()):
+                continue
+            conn.execute(
+                text(
+                    f"UPDATE {table} SET role = 'staff' "
+                    "WHERE role IN ('admin', 'dispatcher', 'viewer')"
+                )
+            )
 
 
 def backfill_session(engine) -> None:

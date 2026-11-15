@@ -135,6 +135,7 @@ function pin(color: string, glyph: string, ring: string) {
 }
 
 const HOSPITAL_ICON = pin('#0f766e', 'H', '#0b4f4a');
+const UNCLAIMED_HOSPITAL_ICON = pin('#94a3b8', '○', '#64748b');
 const AMBULANCE_ICON = (moving: boolean) =>
   pin(
     moving ? '#dc2626' : '#64748b',
@@ -152,7 +153,7 @@ function escape(value: string | null | undefined) {
 
 const FRAME = { padding: [34, 34] as [number, number], maxZoom: 15, animate: true };
 
-type NetworkHospital = Hospital & { id: number };
+type NetworkHospital = Hospital & { id: number; claimed?: boolean };
 type MapLayer = 'hospitals' | 'incidents' | 'ambulances';
 
 function contentBounds(hospitals: Hospital[], incidents: Incident[], ambulances: Ambulance[]) {
@@ -273,11 +274,18 @@ export function LiveMap({
     for (const item of hospitalPoints) {
       if (!hospitalIds.has(item.hospital_id)) continue;
       const point: L.LatLngExpression = [item.lat, item.lon];
+      const unclaimed = 'claimed' in item && item.claimed === false;
+      const icon = unclaimed ? UNCLAIMED_HOSPITAL_ICON : HOSPITAL_ICON;
       const existing = store.hospitals.get(item.hospital_id);
-      if (existing) existing.setLatLng(point);
-      else {
-        const marker = L.marker(point, { icon: HOSPITAL_ICON, zIndexOffset: 600, keyboard: false }).addTo(instance)
-          .bindPopup(`<strong>${escape(item.name)}</strong><br/>${networkView ? `${item.free_beds} beds free` : 'Your hospital'}`);
+      if (existing) {
+        existing.setLatLng(point);
+        existing.setIcon(icon);
+      } else {
+        const popup = unclaimed
+          ? `<strong>${escape(item.name)}</strong><br/>${escape((item as { governorate?: string }).governorate ?? '')} · Not yet claimed`
+          : `<strong>${escape(item.name)}</strong><br/>${networkView ? `${item.free_beds} beds free` : 'Your hospital'}`;
+        const marker = L.marker(point, { icon, zIndexOffset: unclaimed ? 300 : 600, keyboard: false }).addTo(instance)
+          .bindPopup(popup);
         if (networkView && onFocusHospital && 'id' in item && typeof item.id === 'number') {
           const networkId = item.id;
           marker.on('click', () => onFocusHospital(networkId));
@@ -323,12 +331,15 @@ export function LiveMap({
           : `You &rarr; ${incident.location.label ?? 'crash'}`
         : 'Offered to you';
 
+      const caseLabel = networkView
+        ? `Case #${incident.alert_id.slice(-6)}`
+        : incident.patient?.name ?? 'Crash';
       const existing = store.crashes.get(incident.alert_id);
       if (existing) {
         existing.setLatLng(point);
         existing.setIcon(crashIcon(tone));
         existing.setPopupContent(
-          `<strong>${escape(incident.patient?.name ?? 'Crash')}</strong><br/>` +
+          `<strong>${escape(caseLabel)}</strong><br/>` +
             `${escape(incident.location.label ?? 'Unknown location')}<br/>` +
             `${escape(heading)}`,
         );
@@ -338,7 +349,7 @@ export function LiveMap({
           L.marker(point, { icon: crashIcon(tone), zIndexOffset: 500, keyboard: false })
             .addTo(instance)
             .bindPopup(
-              `<strong>${escape(incident.patient?.name ?? 'Crash')}</strong><br/>` +
+              `<strong>${escape(caseLabel)}</strong><br/>` +
                 `${escape(incident.location.label ?? 'Unknown location')}<br/>` +
                 `${escape(heading)}`,
             )

@@ -19,7 +19,7 @@ from auth import AuthError, CurrentUser, get_current_user
 from config import ALLOWED_ROLES, CORS_ORIGINS, DB_PATH
 from store import load
 from filters import parse_filters, passes
-from analytics import aggregate
+from analytics import aggregate, provenance
 
 
 app = FastAPI(title="National Analytics Service", version="1.0.0")
@@ -55,7 +55,7 @@ def health():
 @app.get("/analytics/filters")
 def analytics_filters(user: CurrentUser = Depends(get_user)):
     incidents = load(db_path)
-    regions = sorted(set(x.get("region") for x in incidents if x.get("region")))
+    governorates = sorted(set(x.get("governorate") for x in incidents if x.get("governorate")))
     hospitals = []
     seen = set()
     for x in incidents:
@@ -77,7 +77,8 @@ def analytics_filters(user: CurrentUser = Depends(get_user)):
     date_to = max(dates) if dates else None
     sev = [float(x.get("severity") or 0.0) for x in incidents]
     return {
-        "regions": regions,
+        "governorates": governorates,
+        "regions": governorates,
         "hospitals": hospitals,
         "sexes": sexes,
         "age_groups": age_groups,
@@ -87,6 +88,7 @@ def analytics_filters(user: CurrentUser = Depends(get_user)):
         "date_to": date_to,
         "severity_min": min(sev) if sev else 0.0,
         "severity_max": max(sev) if sev else 10.0,
+        "meta": provenance(incidents),
     }
 
 
@@ -101,7 +103,9 @@ def _query_params(request: Request) -> dict:
 def analytics_summary(request: Request, user: CurrentUser = Depends(get_user)):
     incidents = load(db_path)
     f = parse_filters(_query_params(request))
-    return aggregate(incidents, f)
+    payload = aggregate(incidents, f)
+    payload["meta"] = provenance(incidents)
+    return payload
 
 
 @app.get("/analytics/incidents")

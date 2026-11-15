@@ -6,7 +6,7 @@ import type { Hospital, Session } from './types';
 interface AuthValue {
   session: Session | null;
   ready: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, hospitalCode?: string) => Promise<void>;
   joinHospital: (payload: JoinHospitalPayload) => Promise<void>;
   acceptInvitation: (token: string, password: string, fullName?: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -16,6 +16,7 @@ interface AuthValue {
 export interface JoinHospitalPayload {
   registry_id: number;
   admin: { email: string; password: string; full_name?: string };
+  admin_password: string;
   trauma_level?: number;
   ambulances_total?: number;
   beds_total?: number;
@@ -38,6 +39,15 @@ const AuthContext = createContext<AuthValue>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const onExpired = () => {
+      api.setToken(null);
+      setSession(null);
+    };
+    window.addEventListener('auth:expired', onExpired);
+    return () => window.removeEventListener('auth:expired', onExpired);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -69,8 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
-      adopt(await api.login(email, password));
+    async (email: string, password: string, hospitalCode?: string) => {
+      adopt(await api.login(email, password, hospitalCode));
     },
     [adopt],
   );
@@ -79,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (payload: {
       registry_id: number;
       admin: { email: string; password: string; full_name?: string };
+      admin_password: string;
       trauma_level?: number;
       ambulances_total?: number;
       beds_total?: number;

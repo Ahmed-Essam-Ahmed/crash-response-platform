@@ -75,12 +75,20 @@ def _search_strings(row) -> list[str]:
 def seed_registry(db, rows) -> int:
     """Insert registry entries that are not present yet. Never overwrites.
 
-    Coordinates and aliases are filled in on an existing row when the row
+    Rows are ``(name, name_ar, governorate, aliases, lat, lon)``. The last
+    two are the real coordinates carried by the seed list; older callers may
+    pass the shorter ``(name, name_ar, governorate, aliases)`` form and get
+    rows with no location, which is what the claim flow needs.
+
+    Coordinates and aliases are only filled in on an existing row when it
     does not have them yet, so a later seed revision can correct a name
     without touching a coordinate that is now routing ambulances.
     """
     added = 0
-    for name, name_ar, governorate, aliases in rows:
+    for row in rows:
+        name, name_ar, governorate, aliases = row[:4]
+        lat = row[4] if len(row) > 4 else None
+        lon = row[5] if len(row) > 5 else None
         normalized = normalize(name)
         existing = (
             db.query(models.RegistryHospital)
@@ -93,6 +101,8 @@ def seed_registry(db, rows) -> int:
         if existing is not None:
             if aliases and not existing.aliases:
                 existing.aliases = aliases
+            if lat is not None and existing.lat is None:
+                existing.lat, existing.lon = lat, lon
             continue
         db.add(
             models.RegistryHospital(
@@ -101,6 +111,8 @@ def seed_registry(db, rows) -> int:
                 name_ar=name_ar,
                 aliases=aliases,
                 governorate=governorate,
+                lat=lat,
+                lon=lon,
                 source="seed",
             )
         )

@@ -1,13 +1,7 @@
+import { getToken } from './api';
 import type { Role } from './types';
 
 const API = import.meta.env.VITE_ANALYTICS_API ?? 'http://localhost:8001';
-const TOKEN_KEY = 'hospital-console-token';
-
-let token: string | null = localStorage.getItem(TOKEN_KEY);
-
-export function getToken() {
-  return token;
-}
 
 export class ApiError extends Error {
   status: number;
@@ -21,6 +15,7 @@ export class ApiError extends Error {
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set('Content-Type', 'application/json');
+  const token = getToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let res: Response;
@@ -41,6 +36,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   }
 
   if (res.status === 401) {
+    if (token) window.dispatchEvent(new Event('auth:expired'));
     const detail = body && typeof body === 'object' ? (body as { detail?: unknown }).detail : null;
     throw new ApiError(401, typeof detail === 'string' ? detail : 'Unauthorised');
   }
@@ -53,6 +49,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export interface AnalyticsFilters {
+  governorates?: string[];
   regions: string[];
   hospitals: { code: string; name: string }[];
   sexes: string[];
@@ -70,6 +67,9 @@ export interface Hotspot {
   lon: number;
   count: number;
   max_severity: number;
+  avg_severity?: number;
+  severity_sum?: number;
+  governorate?: string | null;
 }
 
 export interface PointCount {

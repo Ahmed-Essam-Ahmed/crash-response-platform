@@ -4,12 +4,13 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import models, security, serializers
 from ..config import INVITATION_TTL_HOURS, PUBLIC_WEB_URL, REGISTRY_REVIEW_KEY
 from ..db import get_db
-from ..deps import current_admin, current_user
+from ..deps import current_user, require_admin_password
 from ..domain.naming import normalize
 from ..domain import lifecycle
 from ..realtime import realtime
@@ -22,6 +23,9 @@ class Credentials(BaseModel):
     email: str
     password: str
     full_name: str = ""
+    # Optional workspace code. When present, the account must belong to that
+    # hospital, which is what the org-first sign-in flow sends.
+    hospital_code: str | None = None
 
     @field_validator("email")
     @classmethod
@@ -49,6 +53,9 @@ class HospitalJoin(BaseModel):
 
     registry_id: int
     admin: Credentials
+    # The hospital-wide password that will guard sensitive changes. Set now by
+    # the founding admin and shared out-of-band; it is not any person's login.
+    admin_password: str = Field(min_length=8)
     trauma_level: int = Field(default=1, ge=1, le=3)
     ambulances_total: int = Field(default=2, ge=0, le=200)
     ambulances_available: int | None = Field(default=None, ge=0, le=200)
@@ -105,9 +112,15 @@ def _require_registry_reviewer(x_review_key: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="registry review access is not configured")
 
 
+def _require_authority(user: models.User = Depends(current_user)) -> models.User:
+    """National oversight accounts only; used for the live national picture."""
+    if user.role != "authority":
+        raise HTTPException(status_code=403, detail="the national view is for authority accounts")
+    return user
+
+
 class InvitationCreate(BaseModel):
     email: str
-    role: str = "dispatcher"
 
     @field_validator("email")
     @classmethod
@@ -115,13 +128,6 @@ class InvitationCreate(BaseModel):
         v = v.strip().lower()
         if "@" not in v or "." not in v.split("@")[-1]:
             raise ValueError("enter a valid email address")
-        return v
-
-    @field_validator("role")
-    @classmethod
-    def check_role(cls, v: str) -> str:
-        if v not in security.ROLES:
-            raise ValueError(f"role must be one of {', '.join(security.ROLES)}")
         return v
 
 
@@ -136,7 +142,7 @@ def _new_hospital_code(name: str) -> str:
     return f"{slug[:40]}-{uuid.uuid4().hex[:6]}"
 
 
-def _create_user(db, hospital, payload: Credentials, role: str) -> models.User:
+def _create_user(db, hospital, payload: Credentials) -> models.User:
     salt, digest = security.hash_password(payload.password)
     user = models.User(
         hospital_id=hospital.id,
@@ -144,7 +150,7 @@ def _create_user(db, hospital, payload: Credentials, role: str) -> models.User:
         full_name=payload.full_name or payload.email.split("@")[0],
         password_hash=digest,
         password_salt=salt,
-        role=role,
+        role="staff",
     )
     db.add(user)
     db.flush()
@@ -251,6 +257,7 @@ def join_hospital(payload: HospitalJoin, db: Session = Depends(get_db)):
         available = payload.ambulances_total
     available = min(available, payload.ambulances_total)
 
+    admin_salt, admin_digest = security.hash_password(payload.admin_password)
     hospital = models.Hospital(
         code=_new_hospital_code(entry.name),
         name=entry.name,
@@ -266,6 +273,8 @@ def join_hospital(payload: HospitalJoin, db: Session = Depends(get_db)):
         beds_total=payload.beds_total,
         beds_occupied=0,
         current_load=0,
+        admin_password_hash=admin_digest,
+        admin_password_salt=admin_salt,
     )
     db.add(hospital)
     db.flush()
@@ -273,7 +282,7 @@ def join_hospital(payload: HospitalJoin, db: Session = Depends(get_db)):
     dispatch.resize_fleet(db, hospital, payload.ambulances_total)
     dispatch.set_availability(db, hospital, available)
 
-    user = _create_user(db, hospital, payload.admin, "admin")
+    user = _create_user(db, hospital, payload.admin)
     session = _issue(db, user)
 
     return {
@@ -373,7 +382,72 @@ def pending_hospital_claims(db: Session = Depends(get_db)):
 @router.get("/review/overview", dependencies=[Depends(_require_registry_reviewer)])
 def platform_overview(db: Session = Depends(get_db)):
     """Cross-hospital operational snapshot for the national admin console."""
+    return _national_snapshot(db)
+
+
+@router.get("/review/registry", dependencies=[Depends(_require_registry_reviewer)])
+def platform_registry(db: Session = Depends(get_db)):
+    """Hospital registry for platform management: roster plus outstanding claims."""
+    snapshot = _national_snapshot(db)
+    return {
+        "generated_at": snapshot["generated_at"],
+        "hospitals": snapshot["hospitals"],
+        "pending_claims": snapshot["pending_claims"],
+    }
+
+
+@router.get("/authority/overview")
+def authority_overview(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(_require_authority),
+    include_unclaimed: bool = False,
+):
+    """Live national picture: operating hospitals, open cases and ambulances.
+
+    Registry entries that no hospital has claimed are hidden by default so the
+    national map shows places that can actually receive a case. Platform review
+    still asks for the full registry explicitly.
+    """
+    snapshot = _national_snapshot(db, include_unclaimed=include_unclaimed)
+    return {
+        "generated_at": snapshot["generated_at"],
+        "hospitals": snapshot["hospitals"],
+        "ambulances": snapshot["ambulances"],
+        "incidents": snapshot["incidents"],
+    }
+
+
+@router.get("/authority/incidents/{alert_id}")
+def authority_incident_details(
+    alert_id: str, db: Session = Depends(get_db), user: models.User = Depends(_require_authority)
+):
+    """Case detail with its timeline, for the authority's national map."""
+    incident = db.query(models.Incident).filter(models.Incident.alert_id == alert_id).first()
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    return serializers.incident_to_dict(incident, include_events=True, hospital=incident.hospital)
+
+
+def _national_snapshot(db: Session, include_unclaimed: bool = True) -> dict:
+    """Everything the national consoles show: hospitals, fleet, open cases, claims."""
     hospitals = db.query(models.Hospital).order_by(models.Hospital.name).all()
+    claimed_registry_ids = {h.registry_id for h in hospitals if h.registry_id is not None}
+    # Curated registry rows that no tenant has claimed yet. Only the geocoded
+    # ones can be placed on the map, so the rest stay out of the snapshot until
+    # a coordinate exists for them.
+    unclaimed_registry = []
+    if include_unclaimed:
+        unclaimed_registry = (
+            db.query(models.RegistryHospital)
+            .filter(
+                models.RegistryHospital.is_active.is_(True),
+                models.RegistryHospital.lat.isnot(None),
+                models.RegistryHospital.lon.isnot(None),
+                ~models.RegistryHospital.id.in_(claimed_registry_ids),
+            )
+            .order_by(models.RegistryHospital.name)
+            .all()
+        )
     ambulances = db.query(models.Ambulance).order_by(models.Ambulance.code).all()
     active_incidents = (
         db.query(models.Incident)
@@ -396,8 +470,19 @@ def platform_overview(db: Session = Depends(get_db)):
                 "id": hospital.id,
                 "staff_count": len(hospital.users),
                 "registry_id": hospital.registry_id,
+                "claimed": True,
             }
             for hospital in hospitals
+        ]
+        + [
+            {
+                **serializers.registry_hospital_to_dict(entry),
+                "id": entry.id,
+                "staff_count": 0,
+                "registry_id": entry.id,
+                "claimed": False,
+            }
+            for entry in unclaimed_registry
         ],
         "ambulances": [
             {
@@ -626,6 +711,29 @@ def reject_hospital_claim(
     return {"status": "rejected", "claim_id": claim.id, "mail_sent": mail_sent}
 
 
+@router.get("/hospitals/{code}")
+def hospital_lookup(code: str, db: Session = Depends(get_db)):
+    """Resolve a hospital by its workspace code, for the org-first sign-in step.
+
+    The code is meant to be shared with that hospital's staff (like a Slack
+    workspace URL), so this does not expose the tenant list: a caller has to
+    already know the code.
+    """
+    hospital = (
+        db.query(models.Hospital)
+        .filter(func.lower(models.Hospital.code) == code.strip().lower())
+        .first()
+    )
+    if hospital is None:
+        raise HTTPException(status_code=404, detail="no hospital matches that code")
+    return {
+        "code": hospital.code,
+        "name": hospital.name,
+        "address": hospital.address,
+        "trauma_level": hospital.trauma_level,
+    }
+
+
 @router.post("/login")
 def login(payload: Credentials, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email.strip().lower()).first()
@@ -633,6 +741,20 @@ def login(payload: Credentials, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="email or password is incorrect")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="this account has been deactivated")
+    if user.hospital_id is not None and not payload.hospital_code:
+        raise HTTPException(
+            status_code=403, detail="enter your hospital workspace code to sign in"
+        )
+    if payload.hospital_code:
+        hospital = (
+            db.query(models.Hospital)
+            .filter(func.lower(models.Hospital.code) == payload.hospital_code.strip().lower())
+            .first()
+        )
+        if hospital is None or user.hospital_id != hospital.id:
+            raise HTTPException(
+                status_code=403, detail="this account does not belong to that hospital"
+            )
 
     user.last_login_at = datetime.utcnow()
     session = _issue(db, user)
@@ -651,6 +773,77 @@ def me(user: models.User = Depends(current_user)):
         "user": serializers.user_to_dict(user),
         "hospital": hospital,
     }
+
+
+class ProfileUpdate(BaseModel):
+    """The parts of an account a person may change about themselves.
+
+    Deliberately narrow: name and email only. Role is never client-writable,
+    and neither is anything belonging to the hospital.
+    """
+
+    full_name: str | None = Field(default=None, min_length=2, max_length=120)
+    email: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def normalise_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip().lower()
+        if not cleaned or "@" not in cleaned:
+            raise ValueError("enter a valid email address")
+        return cleaned
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
+@router.patch("/me")
+def update_profile(
+    payload: ProfileUpdate,
+    user: models.User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+    if payload.email is not None and payload.email != user.email:
+        taken = (
+            db.query(models.User)
+            .filter(models.User.email == payload.email, models.User.id != user.id)
+            .first()
+        )
+        if taken is not None:
+            raise HTTPException(status_code=409, detail="that email is already in use")
+        user.email = payload.email
+    db.commit()
+    db.refresh(user)
+    return {"user": serializers.user_to_dict(user)}
+
+
+@router.post("/change-password")
+def change_password(
+    payload: PasswordChange,
+    user: models.User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    if not security.verify_password(
+        payload.current_password, user.password_salt, user.password_hash
+    ):
+        raise HTTPException(status_code=400, detail="current password is incorrect")
+    salt, digest = security.hash_password(payload.new_password)
+    user.password_salt = salt
+    user.password_hash = digest
+    db.commit()
+    # Every other session for this account is now stale; a password change
+    # that leaves old tokens alive has not actually changed the password.
+    db.query(models.AuthToken).filter(
+        models.AuthToken.user_id == user.id, models.AuthToken.revoked_at.is_(None)
+    ).update({"revoked_at": datetime.utcnow()})
+    db.commit()
+    return {"changed": True}
 
 
 @router.post("/logout")
@@ -745,7 +938,7 @@ def accept_invitation(
         full_name=payload.full_name or row.email.split("@")[0],
         password_hash=digest,
         password_salt=salt,
-        role=row.role,
+        role="staff",
     )
     db.add(user)
     db.flush()
@@ -768,7 +961,7 @@ def list_staff(user: models.User = Depends(current_user), db: Session = Depends(
 
 @router.get("/staff/invitations")
 def list_invitations(
-    admin: models.User = Depends(current_admin), db: Session = Depends(get_db)
+    admin: models.User = Depends(current_user), db: Session = Depends(get_db)
 ):
     rows = (
         db.query(models.StaffInvitation)
@@ -783,7 +976,7 @@ def list_invitations(
 @router.post("/staff/invitations", status_code=201)
 def invite_staff(
     payload: InvitationCreate,
-    admin: models.User = Depends(current_admin),
+    admin: models.User = Depends(require_admin_password),
     db: Session = Depends(get_db),
 ):
     """Invite a colleague by email.
@@ -795,11 +988,6 @@ def invite_staff(
     """
     if db.query(models.User).filter(models.User.email == payload.email).first():
         raise HTTPException(status_code=409, detail="an account already uses that email address")
-
-    if not security.require_role(admin.role, payload.role):
-        raise HTTPException(
-            status_code=403, detail="you cannot grant a role higher than your own"
-        )
 
     open_invitation = (
         db.query(models.StaffInvitation)
@@ -820,7 +1008,7 @@ def invite_staff(
     row = models.StaffInvitation(
         hospital_id=admin.hospital_id,
         email=payload.email,
-        role=payload.role,
+        role="staff",
         token_hash=hashed,
         invited_by_user_id=admin.id,
         expires_at=datetime.utcnow() + timedelta(hours=INVITATION_TTL_HOURS),
@@ -831,7 +1019,7 @@ def invite_staff(
     link = f"{PUBLIC_WEB_URL}/invite/{raw}"
     body = (
         f"{admin.full_name} has invited you to join {admin.hospital.name} on the "
-        f"Crash Response Platform as {payload.role}.\n\n"
+        f"Crash Response Platform.\n\n"
         f"Set your password here:\n{link}\n\n"
         f"The link expires in {INVITATION_TTL_HOURS} hours. "
         f"If you were not expecting this, ignore it and nothing will happen.\n"
@@ -849,7 +1037,7 @@ def invite_staff(
 @router.delete("/staff/invitations/{invitation_id}")
 def revoke_invitation(
     invitation_id: int,
-    admin: models.User = Depends(current_admin),
+    admin: models.User = Depends(require_admin_password),
     db: Session = Depends(get_db),
 ):
     row = (
@@ -875,7 +1063,7 @@ def revoke_invitation(
 @router.delete("/staff/{user_id}")
 def remove_staff(
     user_id: int,
-    admin: models.User = Depends(current_admin),
+    admin: models.User = Depends(require_admin_password),
     db: Session = Depends(get_db),
 ):
     target = db.query(models.User).filter(models.User.id == user_id).first()
@@ -883,10 +1071,6 @@ def remove_staff(
         raise HTTPException(status_code=404, detail="staff member not found")
     if target.id == admin.id:
         raise HTTPException(status_code=409, detail="you cannot remove your own account")
-    if db.query(models.User).filter(
-        models.User.hospital_id == admin.hospital_id, models.User.role == "admin", models.User.is_active.is_(True)
-    ).count() <= 1 and target.role == "admin":
-        raise HTTPException(status_code=409, detail="your hospital needs at least one admin")
 
     target.is_active = False
     db.query(models.AuthToken).filter(models.AuthToken.user_id == target.id).update(

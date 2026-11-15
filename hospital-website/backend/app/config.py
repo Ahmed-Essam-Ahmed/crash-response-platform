@@ -16,6 +16,17 @@ HANDOVER_SECONDS = 12.0
 
 DEMO_SOURCE = os.environ.get("DEMO_SOURCE", "off")
 
+# Row prefixes written by the live demo source and national seeder. The
+# national consoles use this to label synthetic data instead of presenting it
+# as a real operational feed.
+DEMO_TRIP_PREFIXES = tuple(
+    prefix.strip()
+    for prefix in os.environ.get(
+        "DEMO_TRIP_PREFIXES", "demo-,trip-demo-,national-demo-"
+    ).split(",")
+    if prefix.strip()
+)
+
 TOKEN_TTL_HOURS = int(os.environ.get("TOKEN_TTL_HOURS", "720"))
 PASSWORD_ITERATIONS = int(os.environ.get("PASSWORD_ITERATIONS", "240000"))
 

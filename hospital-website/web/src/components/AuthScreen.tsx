@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useAuth } from '../auth';
 import {
   ApiError,
+  fetchHospital,
   fetchPlatformOverview,
   getPlatformKey,
   geoSearch,
@@ -10,6 +11,7 @@ import {
   searchRegistry,
   submitClaim,
   setPlatformKey as storePlatformKey,
+  type HospitalWorkspace,
   type RegistryEntry,
 } from '../api';
 import { Button } from './Button';
@@ -23,10 +25,15 @@ const inputClass =
 
 const labelClass = 'text-2xs font-semibold tracking-[0.08em] text-muted uppercase';
 
-const DEMO_SIGN_IN = {
-  email: 'riverside@demo.hospital',
-  password: 'hospital123',
+// Org-first sign-in: the hospital is a workspace identified by its code, and
+// the user account lives inside it. Everyone at a hospital has the same role;
+// sensitive changes are confirmed separately with the hospital admin password.
+const DEMO_HOSPITAL = {
+  code: 'riverside-trauma-centre',
+  name: 'Riverside Trauma Centre',
 };
+
+const DEMO_AUTHORITY = { email: 'authority@egypt.gov', password: 'authority123' };
 
 const DEMO_PLATFORM_KEY = import.meta.env.VITE_PLATFORM_ADMIN_KEY ?? '';
 
@@ -48,10 +55,10 @@ function Field({
   );
 }
 
-function SignIn() {
+function AuthoritySignIn() {
   const { signIn } = useAuth();
-  const [email, setEmail] = useState(DEMO_SIGN_IN.email);
-  const [password, setPassword] = useState(DEMO_SIGN_IN.password);
+  const [email, setEmail] = useState(DEMO_AUTHORITY.email);
+  const [password, setPassword] = useState(DEMO_AUTHORITY.password);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -78,6 +85,122 @@ function SignIn() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className={inputClass}
+          placeholder="authority@egypt.gov"
+        />
+      </Field>
+      <Field label="Password">
+        <input
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputClass}
+          placeholder="••••••••"
+        />
+      </Field>
+      {error && (
+        <p role="alert" data-tone="critical" className="chip rounded-xl px-3.5 py-2.5 text-sm">
+          {error}
+        </p>
+      )}
+      <Button type="submit" disabled={busy} className="w-full">
+        {busy ? 'Signing in…' : 'Sign in'}
+      </Button>
+    </form>
+  );
+}
+
+function HospitalSignIn() {
+  const { signIn } = useAuth();
+  const [step, setStep] = useState<'workspace' | 'credentials'>('workspace');
+  const [code, setCode] = useState('');
+  const [hospital, setHospital] = useState<HospitalWorkspace | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const resolveHospital = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = code.trim();
+    if (!value) {
+      setError('Enter a hospital workspace code');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const found = await fetchHospital(value);
+      setHospital(found);
+      setStep('credentials');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not find that hospital');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitCredentials = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!hospital) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await signIn(email, password, hospital.code);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Sign in failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (step === 'workspace') {
+    return (
+      <form onSubmit={resolveHospital} className="space-y-4">
+        <p className="text-sm text-muted">Enter your hospital’s workspace code.</p>
+        <Field label="Hospital workspace code" hint="e.g. riverside-trauma-centre">
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            autoFocus
+            className={inputClass}
+            placeholder="riverside-trauma-centre"
+          />
+        </Field>
+        <button
+          type="button"
+          onClick={() => setCode(DEMO_HOSPITAL.code)}
+          className="chip rounded-lg px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-surface-2"
+        >
+          Use demo hospital ({DEMO_HOSPITAL.name})
+        </button>
+        {error && (
+          <p role="alert" data-tone="critical" className="chip rounded-xl px-3.5 py-2.5 text-sm">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={busy || !code.trim()} className="w-full">
+          {busy ? 'Checking…' : 'Continue'}
+        </Button>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={submitCredentials} className="space-y-4">
+      <div className="chip rounded-xl px-3.5 py-2.5 text-sm">
+        <span className="block font-medium">{hospital?.name}</span>
+        <span className="text-xs text-muted">{hospital?.code}</span>
+      </div>
+      <Field label="Work email">
+        <input
+          type="email"
+          autoComplete="username"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={inputClass}
           placeholder="you@hospital.org"
         />
       </Field>
@@ -92,19 +215,23 @@ function SignIn() {
           placeholder="••••••••"
         />
       </Field>
-
       {error && (
         <p role="alert" data-tone="critical" className="chip rounded-xl px-3.5 py-2.5 text-sm">
           {error}
         </p>
       )}
-
-      <Button type="submit" disabled={busy} className="w-full">
-        {busy ? 'Signing in…' : 'Sign in'}
-      </Button>
+      <div className="flex items-center justify-between gap-3">
+        <Button type="button" variant="ghost" onClick={() => { setStep('workspace'); setError(null); }}>
+          Back
+        </Button>
+        <Button type="submit" disabled={busy} className="flex-1">
+          {busy ? 'Signing in…' : 'Sign in'}
+        </Button>
+      </div>
     </form>
   );
 }
+
 
 function PlatformSignIn({ onAccess }: { onAccess: (key: string) => void }) {
   const [key, setKey] = useState(DEMO_PLATFORM_KEY);
@@ -566,16 +693,20 @@ function Register() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
   const [point, setPoint] = useState<{ lat: number; lon: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const needsLocation = entry !== null && !entry.has_location;
 
+  const adminPasswordReady = adminPassword.length >= 8 && adminPassword === adminPasswordConfirm;
+
   const canContinue = () => {
     if (step === 0) return entry !== null;
     if (step === 1) return !needsLocation || (point !== null);
-    return email.includes('@') && password.length >= 8;
+    return email.includes('@') && password.length >= 8 && adminPasswordReady;
   };
 
   const submit = async () => {
@@ -593,6 +724,7 @@ function Register() {
         lat: point?.lat,
         lon: point?.lon,
         admin: { email: email.trim(), password, full_name: name.trim() },
+        admin_password: adminPassword,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create the account');
@@ -765,7 +897,7 @@ function Register() {
                   placeholder="you@hospital.org"
                 />
               </Field>
-              <Field label="Password" hint="At least 8 characters.">
+              <Field label="Your password" hint="At least 8 characters. You sign in with this.">
                 <input
                   type="password"
                   autoComplete="new-password"
@@ -775,9 +907,41 @@ function Register() {
                   placeholder="••••••••"
                 />
               </Field>
-              <p className="text-sm text-muted">
-                You will be the hospital admin, and can invite dispatchers and viewers afterwards.
-              </p>
+
+              <div className="space-y-1.5 border-t border-line pt-4">
+                <p className="text-sm font-medium">Hospital admin password</p>
+                <p className="text-xs text-muted">
+                  Shared by everyone at your hospital to confirm capacity and team changes. It is
+                  asked again for each change, so keep it somewhere your team can reach.
+                </p>
+              </div>
+              <Field label="Admin password">
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  className={inputClass}
+                  placeholder="At least 8 characters"
+                />
+              </Field>
+              <Field
+                label="Confirm admin password"
+                hint={
+                  adminPasswordConfirm && adminPassword !== adminPasswordConfirm
+                    ? 'The two passwords do not match.'
+                    : undefined
+                }
+              >
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={adminPasswordConfirm}
+                  onChange={(e) => setAdminPasswordConfirm(e.target.value)}
+                  className={inputClass}
+                  placeholder="Repeat the admin password"
+                />
+              </Field>
             </>
           )}
         </motion.div>
@@ -818,7 +982,7 @@ function Register() {
 
 export function AuthScreen() {
   const reduce = useReducedMotion();
-  const [mode, setMode] = useState<'signin' | 'register' | 'platform'>('signin');
+  const [mode, setMode] = useState<'signin' | 'register' | 'authority' | 'platform'>('signin');
   const [platformKey, setPlatformKey] = useState(() => getPlatformKey());
   const inviteToken = inviteTokenFromUrl();
 
@@ -827,6 +991,8 @@ export function AuthScreen() {
       <PlatformAdmin initialKey={platformKey} onExit={() => { setPlatformKey(''); setMode('signin'); }} />
     </Suspense>;
   }
+
+  const secondary = mode === 'authority' || mode === 'platform';
 
   return (
     <div className="relative grid min-h-dvh place-items-center px-4 py-10">
@@ -851,27 +1017,68 @@ export function AuthScreen() {
           <AcceptInvite token={inviteToken} />
         ) : (
           <div className="card p-5 sm:p-6">
-            <div
-              className="mb-5 grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1"
-              role="group"
-              aria-label="Choose account type"
-            >
-              {(['signin', 'register', 'platform'] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setMode(key)}
-                  aria-pressed={mode === key}
-                  className={`min-h-10 flex-1 rounded-lg text-sm font-medium transition-colors ${
-                    mode === key ? 'bg-surface text-ink shadow-soft' : 'text-muted hover:text-ink'
-                  }`}
-                >
-                  {key === 'signin' ? 'Hospital sign in' : key === 'register' ? 'Register hospital' : 'Platform admin'}
-                </button>
-              ))}
-            </div>
+            {secondary ? (
+              <button
+                type="button"
+                onClick={() => setMode('signin')}
+                className="mb-5 inline-flex min-h-9 items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-ink"
+              >
+                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+                Back to hospital access
+              </button>
+            ) : (
+              <div
+                className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1"
+                role="group"
+                aria-label="Hospital access"
+              >
+                {(['signin', 'register'] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setMode(key)}
+                    aria-pressed={mode === key}
+                    className={`min-h-10 rounded-lg text-sm font-medium transition-colors ${
+                      mode === key ? 'bg-surface text-ink shadow-soft' : 'text-muted hover:text-ink'
+                    }`}
+                  >
+                    {key === 'signin' ? 'Sign in' : 'Register hospital'}
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {mode === 'signin' ? <SignIn /> : mode === 'register' ? <Register /> : <PlatformSignIn onAccess={setPlatformKey} />}
+            {mode === 'signin' ? (
+              <HospitalSignIn />
+            ) : mode === 'register' ? (
+              <Register />
+            ) : mode === 'authority' ? (
+              <AuthoritySignIn />
+            ) : (
+              <PlatformSignIn onAccess={setPlatformKey} />
+            )}
+
+            {!secondary && (
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-line pt-4 text-xs text-muted">
+                <button
+                  type="button"
+                  onClick={() => setMode('authority')}
+                  className="font-medium transition-colors hover:text-ink"
+                >
+                  National authority sign in
+                </button>
+                <span aria-hidden className="text-line-strong">·</span>
+                <button
+                  type="button"
+                  onClick={() => setMode('platform')}
+                  className="font-medium transition-colors hover:text-ink"
+                >
+                  Platform administrator
+                </button>
+              </div>
+            )}
           </div>
         )}
 

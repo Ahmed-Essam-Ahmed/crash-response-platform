@@ -108,7 +108,7 @@ class StaffInvitation(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), index=True)
     email: Mapped[str] = mapped_column(String, index=True)
-    role: Mapped[str] = mapped_column(String, default="dispatcher")
+    role: Mapped[str] = mapped_column(String, default="staff")
     token_hash: Mapped[str] = mapped_column(String, unique=True, index=True)
     invited_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
@@ -146,6 +146,11 @@ class Hospital(Base):
     beds_total: Mapped[int] = mapped_column(Integer, default=0)
     beds_occupied: Mapped[int] = mapped_column(Integer, default=0)
     current_load: Mapped[int] = mapped_column(Integer, default=0)
+    # The hospital-wide password that unlocks sensitive changes. Deliberately
+    # separate from any person's login password, set once at registration and
+    # shared out-of-band, and required again on every sensitive action.
+    admin_password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    admin_password_salt: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="hospital", cascade="all, delete-orphan")
@@ -175,7 +180,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String)
     password_hash: Mapped[str] = mapped_column(String)
     password_salt: Mapped[str] = mapped_column(String)
-    role: Mapped[str] = mapped_column(String, default="dispatcher")
+    role: Mapped[str] = mapped_column(String, default="staff")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -265,6 +270,7 @@ class Incident(Base):
     route_inbound: Mapped[str | None] = mapped_column(Text, nullable=True)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
+    governorate: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     location_label: Mapped[str | None] = mapped_column(String, nullable=True)
     occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String, default=Status.DETECTED.value, index=True)

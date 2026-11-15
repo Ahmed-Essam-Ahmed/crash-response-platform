@@ -24,6 +24,14 @@ export function setToken(next: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+// Sensitive changes are confirmed per action with the hospital admin password.
+// It rides on every such request rather than unlocking a session token.
+function adminHeaders(adminPassword: string): Headers {
+  const headers = new Headers();
+  headers.set('X-Admin-Password', adminPassword);
+  return headers;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -56,7 +64,10 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   }
 
   if (res.status === 401) {
-    if (token) setToken(null);
+    if (token) {
+      setToken(null);
+      window.dispatchEvent(new Event('auth:expired'));
+    }
     const detail = body && typeof body === 'object' ? (body as { detail?: unknown }).detail : null;
     throw new ApiError(
       401,
@@ -109,6 +120,7 @@ export const searchRegistry = (params: { q?: string; governorate?: string; limit
 export const joinHospital = (body: {
   registry_id: number;
   admin: { email: string; password: string; full_name?: string };
+  admin_password: string;
   trauma_level?: number;
   ambulances_total?: number;
   ambulances_available?: number;
@@ -137,7 +149,13 @@ export const submitClaim = (body: {
 
 export interface PlatformOverview {
   generated_at: string;
-  hospitals: (Hospital & { id: number; staff_count: number; registry_id: number | null })[];
+  hospitals: (Hospital & {
+    id: number;
+    staff_count: number;
+    registry_id: number | null;
+    claimed: boolean;
+    governorate?: string;
+  })[];
   ambulances: (Ambulance & { hospital_name: string; incident_alert_id: string | null })[];
   incidents: (Incident & {
     lat: number;
@@ -188,6 +206,28 @@ export async function platformRequest<T>(path: string, key: string, init: Reques
 export const fetchPlatformOverview = (key: string) =>
   platformRequest<PlatformOverview>('/auth/review/overview', key);
 
+export interface PlatformRegistry {
+  generated_at: string;
+  hospitals: PlatformOverview['hospitals'];
+  pending_claims: PlatformOverview['pending_claims'];
+}
+
+export const fetchPlatformRegistry = (key: string) =>
+  platformRequest<PlatformRegistry>('/auth/review/registry', key);
+
+export interface AuthorityOverview {
+  generated_at: string;
+  hospitals: PlatformOverview['hospitals'];
+  ambulances: PlatformOverview['ambulances'];
+  incidents: PlatformOverview['incidents'];
+}
+
+export const fetchAuthorityOverview = () =>
+  request<AuthorityOverview>('/auth/authority/overview');
+
+export const fetchAuthorityIncident = (alertId: string) =>
+  request<Incident>(`/auth/authority/incidents/${encodeURIComponent(alertId)}`);
+
 export const fetchPlatformIncident = (key: string, alertId: string) =>
   platformRequest<Incident>(`/auth/review/incidents/${encodeURIComponent(alertId)}`, key);
 
@@ -228,13 +268,23 @@ export const acceptInvitation = (token: string, body: { password: string; full_n
     body: JSON.stringify(body),
   });
 
-export const login = (email: string, password: string) =>
+export const login = (email: string, password: string, hospitalCode?: string) =>
   request<Session>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, hospital_code: hospitalCode }),
   });
 
 export const logout = () => request<{ signed_out: boolean }>('/auth/logout', { method: 'POST' });
+
+export interface HospitalWorkspace {
+  code: string;
+  name: string;
+  address: string | null;
+  trauma_level: number;
+}
+
+export const fetchHospital = (code: string) =>
+  request<HospitalWorkspace>(`/auth/hospitals/${encodeURIComponent(code.trim())}`);
 
 export const fetchMe = () => request<{ user: User; hospital: Hospital }>('/auth/me');
 
@@ -254,17 +304,23 @@ export interface Invitation {
 export const fetchInvitations = () =>
   request<(Invitation & { invite_link?: string })[]>('/auth/staff/invitations');
 
-export const inviteStaff = (body: { email: string; role: string }) =>
+export const inviteStaff = (body: { email: string }, adminPassword: string) =>
   request<Invitation & { invite_link: string; mail_sent: boolean; mail_configured: boolean }>(
     '/auth/staff/invitations',
-    { method: 'POST', body: JSON.stringify(body) },
+    { method: 'POST', body: JSON.stringify(body), headers: adminHeaders(adminPassword) },
   );
 
-export const revokeInvitation = (invitationId: number) =>
-  request<{ revoked: boolean }>(`/auth/staff/invitations/${invitationId}`, { method: 'DELETE' });
+export const revokeInvitation = (invitationId: number, adminPassword: string) =>
+  request<{ revoked: boolean }>(`/auth/staff/invitations/${invitationId}`, {
+    method: 'DELETE',
+    headers: adminHeaders(adminPassword),
+  });
 
-export const removeStaff = (userId: number) =>
-  request<{ removed: boolean }>(`/auth/staff/${userId}`, { method: 'DELETE' });
+export const removeStaff = (userId: number, adminPassword: string) =>
+  request<{ removed: boolean }>(`/auth/staff/${userId}`, {
+    method: 'DELETE',
+    headers: adminHeaders(adminPassword),
+  });
 
 export const geoSearch = (q: string) =>
   request<{ query: string; results: GeoResult[] }>(`/geo/search?q=${encodeURIComponent(q)}`);
@@ -289,16 +345,24 @@ export const cancelCase = (alertId: string) =>
 export const fetchFleet = () =>
   request<{ hospital: Hospital; ambulances: Ambulance[] }>('/me/fleet');
 
-export const patchFleet = (body: { ambulances_total?: number; ambulances_available?: number }) =>
+export const patchFleet = (
+  body: { ambulances_total?: number; ambulances_available?: number },
+  adminPassword: string,
+) =>
   request<{ hospital: Hospital; ambulances: Ambulance[] }>('/me/fleet', {
     method: 'PATCH',
     body: JSON.stringify(body),
+    headers: adminHeaders(adminPassword),
   });
 
 export const fetchBeds = () => request<Hospital>('/me/beds');
 
-export const patchBeds = (body: { beds_total: number }) =>
-  request<Hospital>('/me/beds', { method: 'PATCH', body: JSON.stringify(body) });
+export const patchBeds = (body: { beds_total: number }, adminPassword: string) =>
+  request<Hospital>('/me/beds', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers: adminHeaders(adminPassword),
+  });
 
 export function streamUrl() {
   return `${WS_BASE}/me/stream?token=${encodeURIComponent(token ?? '')}`;

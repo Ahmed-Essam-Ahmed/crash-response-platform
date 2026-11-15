@@ -11,22 +11,17 @@ import {
   type Invitation,
 } from '../api';
 import { clock } from '../lib/format';
-import type { Role, User } from '../types';
-
-const ROLE_HELP: Record<Role, string> = {
-  authority: 'National view',
-  admin: 'Full control, including the team and capacity',
-  dispatcher: 'Accept cases and move them along',
-  viewer: 'Can see cases but cannot act',
-};
+import type { User } from '../types';
 
 export function StaffSheet({
   open,
   canManage,
+  requireAdmin,
   onClose,
 }: {
   open: boolean;
   canManage: boolean;
+  requireAdmin: (title: string) => Promise<string | null>;
   onClose: () => void;
 }) {
   const reduce = useReducedMotion();
@@ -35,7 +30,6 @@ export function StaffSheet({
   const [staff, setStaff] = useState<User[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<Role>('dispatcher');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,12 +71,14 @@ export function StaffSheet({
 
   const invite = async (event: React.FormEvent) => {
     event.preventDefault();
+    const password = await requireAdmin('Adding a colleague gives them access to your console.');
+    if (!password) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     setShareLink(null);
     try {
-      const sent = await inviteStaff({ email: email.trim(), role });
+      const sent = await inviteStaff({ email: email.trim() }, password);
       setEmail('');
       // Shown only when SMTP is unconfigured, so a developer is not left
       // believing an email went out when it did not.
@@ -103,11 +99,13 @@ export function StaffSheet({
   };
 
   const cancelInvite = async (invitation: Invitation) => {
+    const password = await requireAdmin(`Withdrawing the invitation for ${invitation.email}.`);
+    if (!password) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await revokeInvitation(invitation.id);
+      await revokeInvitation(invitation.id, password);
       setNotice(`Invitation for ${invitation.email} withdrawn.`);
       await load();
     } catch (err) {
@@ -118,11 +116,13 @@ export function StaffSheet({
   };
 
   const drop = async (user: User) => {
+    const password = await requireAdmin(`${user.email} will lose access to your console.`);
+    if (!password) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await removeStaff(user.user_id);
+      await removeStaff(user.user_id, password);
       setNotice(`${user.email} no longer has access.`);
       await load();
     } catch (err) {
@@ -165,9 +165,7 @@ export function StaffSheet({
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">Team access</h2>
                 <p className="text-sm text-muted">
-                  {canManage
-                    ? 'Who at your hospital can use this console.'
-                    : 'Only hospital admins can change this.'}
+                  Who at your hospital can use this console. Changes need the hospital admin password.
                 </p>
               </div>
               <motion.button
@@ -190,8 +188,7 @@ export function StaffSheet({
                       <p className="truncate text-sm font-medium">{user.full_name || user.email}</p>
                       <p className="truncate text-xs text-muted">{user.email}</p>
                       <p className="mt-0.5 text-2xs text-muted">
-                        {user.role}
-                        {user.last_login_at ? ` · last seen ${clock(user.last_login_at)}` : ' · never signed in'}
+                        {user.last_login_at ? `last seen ${clock(user.last_login_at)}` : 'never signed in'}
                       </p>
                     </div>
                     {canManage && (
@@ -224,25 +221,6 @@ export function StaffSheet({
                       className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-sm outline-none focus:border-[var(--primary)]"
                     />
                   </label>
-                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Access level">
-                    {(['viewer', 'dispatcher', 'admin'] as Role[]).map((key) => (
-                      <button
-                        key={key}
-                        type="button"
-                        role="radio"
-                        aria-checked={role === key}
-                        onClick={() => setRole(key)}
-                        className={`min-h-11 rounded-xl border text-sm font-semibold capitalize transition-colors ${
-                          role === key
-                            ? 'border-transparent bg-primary text-primary-fg'
-                            : 'border-line text-muted hover:text-ink'
-                        }`}
-                      >
-                        {key}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted">{ROLE_HELP[role]}</p>
                   <Button type="submit" disabled={busy} className="w-full">
                     {busy ? 'Working…' : 'Send invitation'}
                   </Button>
@@ -260,7 +238,7 @@ export function StaffSheet({
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm">{invitation.email}</p>
                           <p className="truncate text-xs text-muted">
-                            {invitation.role} · {invitation.status}
+                            {invitation.status}
                             {invitation.status === 'pending'
                               ? ` · expires ${clock(invitation.expires_at)}`
                               : ''}

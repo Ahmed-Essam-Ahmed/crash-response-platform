@@ -4,6 +4,25 @@ from ..domain.naming import normalize
 
 DEMO_PASSWORD = "hospital123"
 AUTHORITY_PASSWORD = "authority123"
+# The hospital-wide password that unlocks sensitive changes in the demo
+# tenants. Separate from every account's login password.
+DEMO_ADMIN_PASSWORD = "hospital-admin"
+
+# Extra demo staff, all carrying the single `staff` role. Seeded on the
+# primary demo tenant only, behind the same SEED_DEMO_LOGIN switch as the
+# demo admin accounts.
+DEMO_STAFF = [
+    {
+        "email": "dispatcher@demo.hospital",
+        "password": "dispatcher123",
+        "full_name": "Riverside Dispatch Desk",
+    },
+    {
+        "email": "viewer@demo.hospital",
+        "password": "viewer123",
+        "full_name": "Riverside Duty Viewer",
+    },
+]
 
 HOSPITALS = [
     {
@@ -74,10 +93,14 @@ def seed(db) -> None:
         _link_demo_registry(db, hospital, spec)
         if not hospital.ambulances:
             _seed_fleet(db, hospital, spec["ambulances"])
+        if SEED_DEMO_LOGIN and not hospital.admin_password_hash:
+            _seed_admin_password(db, hospital)
         if SEED_DEMO_LOGIN and not db.query(models.User).filter(
             models.User.email == spec["email"]
         ).first():
             _seed_admin(db, hospital, spec["email"])
+        if SEED_DEMO_LOGIN and spec["code"] == "riverside-trauma-centre":
+            _seed_demo_staff(db, hospital)
 
 
 def _seed_authority(db):
@@ -113,7 +136,7 @@ def _match_demo_hospital(db, spec):
         db.query(models.User)
         .filter(
             models.User.email == spec["email"],
-            models.User.role == "admin",
+            models.User.role == "staff",
         )
         .first()
     )
@@ -165,9 +188,34 @@ def _seed_admin(db, hospital, email: str) -> None:
             full_name=f"{hospital.name} Dispatch",
             password_hash=digest,
             password_salt=salt,
-            role="admin",
+            role="staff",
         )
     )
+    db.commit()
+
+
+def _seed_admin_password(db, hospital) -> None:
+    salt, digest = security.hash_password(DEMO_ADMIN_PASSWORD)
+    hospital.admin_password_hash = digest
+    hospital.admin_password_salt = salt
+    db.commit()
+
+
+def _seed_demo_staff(db, hospital) -> None:
+    for spec in DEMO_STAFF:
+        if db.query(models.User).filter(models.User.email == spec["email"]).first():
+            continue
+        salt, digest = security.hash_password(spec["password"])
+        db.add(
+            models.User(
+                hospital_id=hospital.id,
+                email=spec["email"],
+                full_name=spec["full_name"],
+                password_hash=digest,
+                password_salt=salt,
+                role="staff",
+            )
+        )
     db.commit()
 
 

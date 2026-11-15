@@ -6,8 +6,10 @@ from datetime import datetime, timedelta
 
 from .config import PASSWORD_ITERATIONS, TOKEN_TTL_HOURS
 
-ROLES = ("authority", "admin", "dispatcher", "viewer")
-ROLE_RANK = {"authority": 4, "admin": 3, "dispatcher": 2, "viewer": 1}
+# Hospital accounts all carry the single `staff` role. Sensitive changes are
+# not a separate role but a per-hospital admin password checked at the moment
+# of the change, so there is no intra-hospital hierarchy to rank.
+ROLES = ("authority", "staff")
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -40,7 +42,3 @@ def token_expiry() -> datetime:
 
 def token_matches(raw: str, stored_hash: str) -> bool:
     return hmac.compare_digest(hash_token(raw), stored_hash)
-
-
-def require_role(actual: str, needed: str) -> bool:
-    return ROLE_RANK.get(actual, 0) >= ROLE_RANK.get(needed, 99)

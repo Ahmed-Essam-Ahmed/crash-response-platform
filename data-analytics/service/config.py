@@ -20,11 +20,28 @@ ALLOWED_ROLES = tuple(
 )
 
 # Fixed grid used to aggregate crash points into "red zone" cells, in degrees.
-# 0.004 deg is roughly 450 m, which reads well over a city.
-HOTSPOT_SPACING = float(os.environ.get("HOTSPOT_SPACING", "0.004"))
+# 0.002 deg is roughly 220 m, fine enough to follow a road at city scale.
+HOTSPOT_SPACING = float(os.environ.get("HOTSPOT_SPACING", "0.002"))
 
-# Cap on rows pulled from the store, newest first.
-MAX_INCIDENTS = int(os.environ.get("MAX_INCIDENTS", "20000"))
+# Cap on rows pulled from the store, newest first. 0 means no cap, so the
+# authority view always covers the same incidents the hospital service holds.
+MAX_INCIDENTS = int(os.environ.get("MAX_INCIDENTS", "0"))
+
+# The national seeder and live demo source use these prefixes. Keeping the
+# provenance rule here means the API can label synthetic rows instead of
+# letting a demo dashboard look like a production feed.
+DEMO_TRIP_PREFIXES = tuple(
+    prefix.strip()
+    for prefix in os.environ.get(
+        "DEMO_TRIP_PREFIXES", "demo-,trip-demo-,national-demo-"
+    ).split(",")
+    if prefix.strip()
+)
+
+# A short read-through cache keeps polling dashboards from re-reading and
+# re-parsing the entire SQLite file on every request. The cache is invalidated
+# by the database mtime/size as well as this TTL.
+CACHE_TTL_SECONDS = float(os.environ.get("CACHE_TTL_SECONDS", "2.0"))
 
 SEVERITY_BUCKETS = [
     ("1-3", 1.0, 3.0),

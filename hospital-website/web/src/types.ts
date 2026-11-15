@@ -9,7 +9,7 @@ export type IncidentStatus =
   | 'closed'
   | 'cancelled';
 
-export type Role = 'authority' | 'admin' | 'dispatcher' | 'viewer';
+export type Role = 'authority' | 'staff';
 
 export interface IncidentEvent {
   status: IncidentStatus;
@@ -45,6 +45,7 @@ export interface CaseRoute {
 export interface CaseLocation {
   lat: number;
   lon: number;
+  governorate?: string | null;
   label: string | null;
   maps_url: string;
   directions_url: string;
