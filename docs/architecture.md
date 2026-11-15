@@ -2,21 +2,21 @@
 
 ## Layers
 
-1. **Simulation Layer** — generates or replays speed, acceleration, rotation, and GPS data with
-   realistic noise, plus contextual factors (time of day, weather), injects labeled crash
-   signatures, and runs the live grid-city world.
-2. **Mobile Application** — mimics phone-based crash detection: consumes the sensor stream,
-   performs on-device preliminary detection, and assembles the emergency payload (geolocation,
-   severity, medical profile).
-3. **AI Model** — hybrid module combining rule-based logic with machine learning classification to
-   decide whether a crash occurred, and a severity estimator producing a 0–10 score.
-4. **Hospital Website (backend)** — receives detection triggers, persists incidents, offers each
+1. **Mobile Application** — the phone-side client **and sensor source**. It reads the device
+   accelerometer, gyroscope, and GPS into a sliding window of `sensor_sample`s (relative `t` plus
+   absolute `occurred_at`), performs a lightweight preliminary check, calls the AI service, and
+   assembles the emergency payload (geolocation, severity, medical profile, emergency contacts).
+   For demos without hardware it replays a recorded trip.
+2. **AI Model** — a standalone HTTP service (`POST /detect`) combining rule-based logic with a
+   machine-learning veto to decide whether a crash occurred, and a severity estimator producing a
+   0–10 score. It returns a `crash_detected` object that is exactly the hospital `POST /cases` body.
+3. **Hospital Website (backend)** — receives detection triggers, persists incidents, offers each
    case to the nearest eligible hospital, escalates it until somebody accepts, broadcasts events in
    real time, simulates notifications, and runs ambulance dispatch.
-5. **Hospital Website (frontend)** — multi-tenant responder console. Every hospital signs in to its
+4. **Hospital Website (frontend)** — multi-tenant responder console. Every hospital signs in to its
    own board of offered cases, active cases, resources, and team; nothing is shared between
    hospitals.
-6. **Data Analytics** — read-only service over the incident store producing hotspot ("red zone")
+5. **Data Analytics** — read-only service over the incident store producing hotspot ("red zone")
    maps, temporal risk patterns, severity distributions, demographics, and hospital response times.
    It has no UI of its own; the **authority dashboard** is embedded in the hospital website and shown
    to users with the `authority` role (national oversight across all of Egypt).
@@ -25,19 +25,22 @@
 
 | Layer(s) | Owned by part | Notes |
 |----------|---------------|-------|
-| 1 | simulation | Source of all movement and crash data |
-| 2 | mobile-app | Thin client; heavy lifting stays server-side |
-| 3 | ai-model | Pure Python: rules + ML + severity scoring |
-| 4, 5 | hospital-website | Full-stack: event store, WebSockets, workflow, console |
-| 6 | data-analytics | Separate read-only service; dashboard UI hosted in the hospital website (`authority` role) |
+| 1 | mobile-app | Sensor source + thin client; heavy lifting stays server-side |
+| 2 | ai-model | Standalone Python service: rules + ML + severity scoring |
+| 3, 4 | hospital-website | Full-stack: event store, WebSockets, workflow, console |
+| 5 | data-analytics | Separate read-only service; dashboard UI hosted in the hospital website (`authority` role) |
+
+The end-to-end wiring between these layers is specified in
+[`integration.md`](integration.md); the message shapes live in [`contracts/`](../contracts).
 
 ## Key Algorithms
 
 - **Crash detection** — peak g-force and delta-V thresholds, ML veto for near-misses
   (hard braking, sharp turns, potholes).
-- **Severity (1–10)** — weighted model over impact g-force, delta-V, impact type, speed at impact,
-  post-crash inactivity, and medical context. The intake boundary clamps whatever the model sends
-  into 1–10, so an upstream 0–20 score is stored as-is rather than rejected.
+- **Severity (0–10 AI / 1–10 clinical)** — weighted model over impact g-force, delta-V, impact
+  type, speed at impact, post-crash inactivity, and medical context. The intake boundary clamps
+  whatever the model sends into 1–10, so an upstream 0–10 (or higher) score is stored in range
+  rather than rejected.
 - **Road routing** — there is no road graph of our own. When a hospital accepts a case, the
   service asks OSRM (keyless, `router.project-osrm.org`) for the driving path from the hospital to
   the crash and back, and stores both legs on the incident. The two legs are fetched separately
@@ -61,7 +64,6 @@
   the only file that knows a map library is involved. Tile choice is not covered by the test suite
   because it needs the network; `scripts/check_basemap.py` verifies the pixels instead, since a
   key-gated tile server keeps returning `200`.
-
 - **Analytics** — grid/DBSCAN hotspot aggregation for red zones; time-bucket analysis; severity
   distribution.
 
@@ -85,11 +87,16 @@ Two consequences worth knowing:
 ## Deployment Topology (dev)
 
 - All parts run locally and communicate over HTTP/WebSocket.
-- Mobile-app and the hospital console talk to the backend via REST (`/cases` to report, `/me` to
-  work) and WS (`/stream`).
-- The AI model is a library/in-process service consumed by the backend.
-- Simulation writes labeled scenarios consumed by mobile-app (playback) and ai-model (training),
-  and drives the live world in-process inside the backend.
+- The **app is the sensor source**: it reads device sensors (or replays a recording), calls the AI
+  service at `:7001`, and reports to the backend via `POST /cases`.
+- The AI model runs as a **standalone HTTP service** (`POST /detect`); the app carries its result
+  into the hospital boundary.
+- The hospital console talks to the backend via REST (`/cases` to report, `/me` to work) and
+  WS (`/me/stream`).
 - Data analytics runs its own read-only service (port 8001) over the backend's SQLite database. It
   validates the caller's bearer token against the backend's `auth_tokens`/`users` and only serves the
-  `authority` role. The dashboard UI ships inside the hospital website and calls this service directly.
+  `authority` role. The dashboard UI ships inside the hospital website and calls this service
+  directly.
+
+See [`integration.md`](integration.md) for ports, the runtime sequence, failure fallbacks, and the
+per-module implementation checklist.

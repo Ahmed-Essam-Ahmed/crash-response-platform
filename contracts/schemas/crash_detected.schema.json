@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-response-platform/contracts/schemas/crash_detected.schema.json",
+  "title": "crash_detected",
+  "description": "Produced by ai-model, forwarded by mobile-app, and consumed by the hospital service as the POST /cases body. This is the single canonical emergency payload.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "type",
+    "trip_id",
+    "occurred_at",
+    "location",
+    "severity"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "type": { "const": "crash_detected" },
+    "trip_id": { "type": "string", "minLength": 1 },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Wall-clock time the crash occurred. The hospital must not replace this with receipt time."
+    },
+    "severity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10,
+      "description": "AI severity on the 0-10 scale. The hospital stores the clinical 1-10 scale and clamps."
+    },
+    "severity_source": {
+      "type": "string",
+      "enum": ["ai", "preliminary", "manual"],
+      "default": "ai"
+    },
+    "severity_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Top-level confidence. A 'preliminary' payload must be <= 0.3."
+    },
+    "severity_summary": { "type": "string" },
+    "mechanism": {
+      "type": "string",
+      "description": "Plain-language answer to 'how did it happen'."
+    },
+    "location": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+        "label": { "type": "string" }
+      }
+    },
+    "location_label": { "type": "string" },
+    "governorate": { "type": "string" },
+    "detection": {
+      "type": "object",
+      "required": ["rule"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": { "type": "boolean" },
+        "ml_confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Model probability; null when no ML model is loaded."
+        }
+      }
+    },
+    "impact_factors": {
+      "type": "object",
+      "description": "Canonical name; 'factors' is a deprecated alias accepted by the backend. 'impact_type' is required for the console's impact display.",
+      "required": ["impact_type"],
+      "additionalProperties": true,
+      "properties": {
+        "impact_type": {
+          "type": "string",
+          "enum": ["frontal", "rear", "side", "rollover", "unknown"]
+        },
+        "peak_g": { "type": "number" },
+        "delta_v_mps": { "type": "number" },
+        "speed_at_impact_mps": { "type": "number" },
+        "post_crash_inactive": { "type": "boolean" },
+        "medical_risk": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "patient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer", "minimum": 0, "maximum": 130 },
+        "blood_type": { "type": "string" },
+        "sex": {
+          "type": "string",
+          "enum": ["male", "female", "other", "unknown"],
+          "description": "Canonical; backend maps to patient_profiles.gender and also accepts 'gender'."
+        },
+        "conditions": { "type": "array", "items": { "type": "string" } },
+        "medications": { "type": "array", "items": { "type": "string" } },
+        "allergies": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      }
+    },
+    "emergency_contacts": {
+      "type": "array",
+      "description": "Order preserved; first entry is the primary contact.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "relation": { "type": "string" },
+          "phone": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "primary": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

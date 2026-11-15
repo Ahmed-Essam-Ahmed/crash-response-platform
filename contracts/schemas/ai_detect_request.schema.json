@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-response-platform/contracts/schemas/ai_detect_request.schema.json",
+  "title": "ai_detect_request",
+  "description": "Emitted by mobile-app to POST /detect on the ai-model service. Carries a sliding window of sensor samples plus optional medical context.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "type",
+    "trip_id",
+    "occurred_at",
+    "window"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "type": { "const": "ai_detect_request" },
+    "trip_id": { "type": "string", "minLength": 1 },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Wall-clock time of the most recent sample in the window."
+    },
+    "window": {
+      "type": "array",
+      "minItems": 40,
+      "description": "Contiguous sensor samples, oldest first. 40 samples = 4 s at 10 Hz (the model's response window).",
+      "items": { "$ref": "sensor_sample.schema.json" }
+    },
+    "medical_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "age": { "type": "integer", "minimum": 0, "maximum": 130 },
+        "conditions": { "type": "array", "items": { "type": "string" } },
+        "medical_risk": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Optional 0-1 prior folded into severity."
+        }
+      }
+    }
+  }
+}

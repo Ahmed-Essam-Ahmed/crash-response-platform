@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crash-response-platform/contracts/schemas/sensor_sample.schema.json",
+  "title": "sensor_sample",
+  "description": "One phone sensor reading. Produced by the mobile-app sensor layer (device accelerometer/gyro/GPS or a replayed recording) and carried inside ai_detect_request to the ai-model. `t` is relative seconds from trip start; `occurred_at` is the absolute wall-clock time.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "type",
+    "t",
+    "occurred_at",
+    "trip_id",
+    "seq",
+    "gps",
+    "accel"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Contract version, e.g. \"1.0\"."
+    },
+    "type": { "const": "sensor_sample" },
+    "t": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Seconds elapsed since trip start (relative clock)."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Absolute ISO-8601 UTC timestamp of this sample."
+    },
+    "trip_id": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "gps": {
+      "type": "object",
+      "required": ["lat", "lon", "speed_mps"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+        "speed_mps": { "type": "number", "minimum": 0 }
+      }
+    },
+    "accel": {
+      "type": "object",
+      "required": ["x", "y", "z", "g"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number", "description": "Longitudinal acceleration in g." },
+        "y": { "type": "number", "description": "Lateral acceleration in g." },
+        "z": { "type": "number", "description": "Vertical acceleration in g." },
+        "g": { "type": "number", "description": "Vector magnitude in g." }
+      }
+    },
+    "gyro": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "context": {
+      "type": "object",
+      "description": "Free-form contextual factors; may grow without contract version bump.",
+      "additionalProperties": true,
+      "properties": {
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "weather": { "type": "string" },
+        "road": { "type": "string" }
+      }
+    }
+  }
+}

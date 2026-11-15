@@ -15,9 +15,9 @@ hospital-website/
 ## How it fits the chain
 
 ```
-upstream (simulation / AI)  ──POST /incidents──▶  hospital-website  ──▶  downstream (analytics)
-                                     │
-                                     └── WS /stream  ──▶  web console
+upstream (mobile-app / AI)  ──POST /cases──▶  hospital-website  ──▶  downstream (analytics)
+                                    │
+                                    └── WS /me/stream  ──▶  web console
 ```
 
 The service is the integration boundary: it takes a crash report in and emits incident status,

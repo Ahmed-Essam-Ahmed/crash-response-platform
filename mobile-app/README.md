@@ -1,8 +1,9 @@
 # Part 1 — Mobile Application
 
-The phone-side client that mimics Apple's Crash Detection. It plays back sensor streams generated
-by `simulation`, does a preliminary on-device check, and on detection builds the emergency payload
-(geolocation, severity, medical profile) and submits it to the backend.
+The phone-side client that mimics Apple's Crash Detection. It is the **sensor source**: it reads the
+device accelerometer, gyroscope, and GPS (with a recorded-trip replay fallback for emulators/demos),
+keeps a sliding window, calls the AI service, and on detection builds the emergency payload
+(geolocation, severity, medical profile, emergency contacts) and submits it to the backend.
 
 ## Ownership
 
@@ -10,10 +11,11 @@ Team member 1.
 
 ## Responsibilities
 
-- Playback of a simulated "drive" (reads a `simulation` scenario JSON).
+- Reads live device sensors (accelerometer/gyro/GPS); replays a recorded trip for emulator/demo.
+- Builds a sliding `sensor_sample` window and calls the AI service (`POST /detect`).
 - Live speed/g-force indicator during the drive.
 - On-impact: emergency state with countdown + severity display.
-- Submits `crash_detected` payload to backend `POST /alerts`.
+- Submits the resulting `crash_detected` payload to backend `POST /cases` (`X-Ingest-Key`).
 - Shows simulated contact-notification confirmation.
 
 ## Run
@@ -23,8 +25,8 @@ npm install
 npx react-native run-ios    # or: run-android
 ```
 
-Place a generated scenario at `src/assets/scenario.json` (export from `simulation`), or load it
-from a URL served by the backend.
+On a device the app reads live sensors. For the emulator/demo it replays a recorded trip from
+`assets/scenario.json`.
 
 ## Layout
 
@@ -32,11 +34,11 @@ from a URL served by the backend.
 App.tsx                      # navigation + app shell
 src/
   types.ts                   # shared payload types (mirror contracts)
-  services/api.ts            # backend client (POST /alerts)
+  services/api.ts            # AI client (POST /detect) + backend client (POST /cases)
   screens/
-    DriveScreen.tsx          # playback UI + live g-meter
+    DriveScreen.tsx          # sensor/replay UI + live g-meter
     EmergencyScreen.tsx      # post-detection alert state
-assets/                      # bundled scenarios
+assets/                      # recorded trip used for replay
 ```
 
 Contract payloads mirror [`contracts/README.md`](../contracts/README.md).
